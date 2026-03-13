@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VideoPlayer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f0f0f; --surface: #1a1a1a; --border: #2a2a2a;
+      --accent: #e84040; --text: #e8e8e8; --muted: #888;
+      --success: #4caf50; --error: #e84040; --info: #2196f3;
+    }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; align-items: center; gap: 1rem; }
+    header h1 { font-size: 1.4rem; font-weight: 700; }
+    header h1 span { color: var(--accent); }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+    .status-dot.playing { background: var(--success); box-shadow: 0 0 6px var(--success); }
+    .status-dot.idle { background: var(--accent); }
+    .status-label { font-size: 0.8rem; color: var(--muted); }
+    main { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .flashes { list-style: none; margin-bottom: 1.5rem; }
+    .flashes li { padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 0.5rem; font-size: 0.9rem; }
+    .flashes .success { background: #1a2e1a; border: 1px solid var(--success); color: var(--success); }
+    .flashes .error   { background: #2e1a1a; border: 1px solid var(--error); color: var(--error); }
+    .flashes .info    { background: #1a2038; border: 1px solid var(--info); color: var(--info); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+    .card h2 { font-size: 0.75rem; font-weight: 600; margin-bottom: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .upload-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 2.5rem; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+    .upload-zone:hover, .upload-zone.dragover { border-color: var(--accent); background: rgba(232,64,64,0.05); }
+    .upload-zone input[type="file"] { display: none; }
+    .upload-zone .icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+    .upload-zone p { color: var(--muted); font-size: 0.9rem; margin-bottom: 0.5rem; }
+    .upload-zone .formats { font-size: 0.75rem; color: #555; }
+    .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.55rem 1.1rem; border-radius: 7px; border: none; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: opacity 0.15s; text-decoration: none; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-ghost   { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn-danger  { background: #3d1515; color: var(--error); border: 1px solid #5a2020; }
+    .btn:hover { opacity: 0.85; }
+    .upload-actions { margin-top: 1rem; display: flex; gap: 0.75rem; justify-content: center; }
+    #progress-container { display: none; margin-top: 1rem; }
+    #progress-bar-wrap { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; }
+    #progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent), #ff6b35); width: 0%; transition: width 0.2s; }
+    #progress-label { font-size: 0.8rem; color: var(--muted); margin-top: 0.4rem; text-align: center; }
+    #playlist { list-style: none; }
+    #playlist li { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0.5rem; border-bottom: 1px solid var(--border); transition: background 0.15s; }
+    #playlist li:last-child { border-bottom: none; }
+    #playlist li:hover { background: rgba(255,255,255,0.03); }
+    #playlist li.drag-over { border-top: 2px solid var(--accent); }
+    .drag-handle { cursor: grab; color: var(--muted); font-size: 1.1rem; user-select: none; }
+    .video-num { font-size: 0.75rem; color: var(--muted); min-width: 1.5rem; text-align: right; }
+    .video-info { flex: 1; min-width: 0; }
+    .video-name { font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .video-meta { font-size: 0.75rem; color: var(--muted); margin-top: 0.1rem; }
+    .empty-state { text-align: center; padding: 3rem 1rem; color: var(--muted); }
+    .empty-state .big { font-size: 3rem; margin-bottom: 0.5rem; }
+    .controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="status-dot {{ status }}" id="status-dot"></div>
+  <h1>Video<span>Player</span></h1>
+  <span class="status-label" id="status-label">{{ status }}</span>
+</header>
+<main>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <ul class="flashes">
+        {% for cat, msg in messages %}<li class="{{ cat }}">{{ msg }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
+  <div class="card">
+    <h2>📁 Upload Videos</h2>
+    <form id="upload-form" method="POST" action="/upload" enctype="multipart/form-data">
+      <div class="upload-zone" id="drop-zone">
+        <div class="icon">🎬</div>
+        <p>Drag &amp; drop videos here, or click to browse</p>
+        <p class="formats">MP4 · MKV · AVI · MOV · WEBM · TS · M4V</p>
+        <input type="file" name="videos" id="file-input" multiple accept=".mp4,.mkv,.avi,.mov,.webm,.ts,.m4v" />
+      </div>
+      <div id="progress-container">
+        <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+        <div id="progress-label">Uploading…</div>
+      </div>
+      <div class="upload-actions">
+        <button type="button" class="btn btn-ghost" onclick="document.getElementById('file-input').click()">Browse Files</button>
+        <button type="submit" class="btn btn-primary" id="upload-btn" style="display:none">⬆ Upload Selected</button>
+      </div>
+    </form>
+  </div>
+  <div class="card">
+    <h2>▶ Playlist ({{ playlist|length }} video{{ 's' if playlist|length != 1 else '' }})</h2>
+    {% if playlist %}
+      <ul id="playlist">
+        {% for video in playlist %}
+          <li draggable="true" data-name="{{ video.name }}">
+            <span class="drag-handle">⠿</span>
+            <span class="video-num">{{ loop.index }}</span>
+            <span>🎥</span>
+            <div class="video-info">
+              <div class="video-name" title="{{ video.name }}">{{ video.name }}</div>
+              <div class="video-meta">{{ video.size_mb }} MB</div>
+            </div>
+            <form method="POST" action="/delete/{{ video.name }}" onsubmit="return confirm('Delete {{ video.name }}?')">
+              <button type="submit" class="btn btn-danger">✕</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty-state"><div class="big">📭</div><p>No videos yet. Upload some above.</p></div>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h2>⚙ Controls</h2>
+    <div class="controls">
+      <form method="POST" action="/restart">
+        <button type="submit" class="btn btn-ghost">↺ Restart Playback</button>
+      </form>
+      <span style="font-size:0.8rem;color:var(--muted)">Drag rows to reorder • Changes apply immediately</span>
+    </div>
+  </div>
+</main>
+<script>
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const uploadBtn = document.getElementById('upload-btn');
+const form = document.getElementById('upload-form');
+dropZone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length > 0) { uploadBtn.style.display = 'inline-flex'; uploadBtn.textContent = `⬆ Upload ${fileInput.files.length} file(s)`; }
+});
+['dragenter','dragover'].forEach(e => dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.add('dragover'); }));
+['dragleave','drop'].forEach(e => dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.remove('dragover'); }));
+dropZone.addEventListener('drop', ev => { ev.preventDefault(); fileInput.files = ev.dataTransfer.files; if (fileInput.files.length > 0) { uploadBtn.style.display = 'inline-flex'; uploadBtn.textContent = `⬆ Upload ${fileInput.files.length} file(s)`; } });
+form.addEventListener('submit', ev => {
+  ev.preventDefault();
+  if (!fileInput.files.length) return;
+  const xhr = new XMLHttpRequest();
+  document.getElementById('progress-container').style.display = 'block';
+  uploadBtn.disabled = true;
+  xhr.upload.addEventListener('progress', e => { if (e.lengthComputable) { const p = Math.round(e.loaded/e.total*100); document.getElementById('progress-bar').style.width = p+'%'; document.getElementById('progress-label').textContent = `Uploading… ${p}%`; } });
+  xhr.addEventListener('load', () => { document.getElementById('progress-label').textContent = 'Done! Reloading…'; setTimeout(() => location.reload(), 1000); });
+  xhr.open('POST', '/upload');
+  xhr.send(new FormData(form));
+});
+const list = document.getElementById('playlist');
+if (list) {
+  let dragged = null;
+  list.addEventListener('dragstart', e => { dragged = e.target.closest('li'); setTimeout(() => dragged.style.opacity = '0.4', 0); });
+  list.addEventListener('dragend', () => { dragged.style.opacity = '1'; list.querySelectorAll('li').forEach(li => li.classList.remove('drag-over')); saveOrder(); });
+  list.addEventListener('dragover', e => { e.preventDefault(); const t = e.target.closest('li'); if (!t || t === dragged) return; list.querySelectorAll('li').forEach(li => li.classList.remove('drag-over')); t.classList.add('drag-over'); const mid = t.getBoundingClientRect().top + t.getBoundingClientRect().height/2; list.insertBefore(dragged, e.clientY < mid ? t : t.nextSibling); });
+  function saveOrder() { const order = [...list.querySelectorAll('li')].map(li => li.dataset.name); list.querySelectorAll('.video-num').forEach((el,i) => el.textContent = i+1); fetch('/reorder', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({order})}); }
+}
+setInterval(() => { fetch('/api/status').then(r=>r.json()).then(d=>{ document.getElementById('status-dot').className='status-dot '+d.status; document.getElementById('status-label').textContent=d.status; }).catch(()=>{}); }, 5000);
+</script>
+</body>
+</html>
