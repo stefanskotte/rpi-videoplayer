@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 app.py - Flask web interface for the VideoPlayer.
-Serves on port 80. Allows uploading, reordering, and deleting videos.
+Serves on port 80. Allows uploading, reordering, deleting, and controlling playback.
 """
 
 import os
@@ -19,7 +19,10 @@ from werkzeug.utils import secure_filename
 
 VIDEO_DIR      = Path("/opt/videoplayer/videos")
 RELOAD_FLAG    = Path("/opt/videoplayer/.reload")
+SKIP_FLAG      = Path("/opt/videoplayer/.skip")
+PAUSE_FLAG     = Path("/opt/videoplayer/.pause")
 ORDER_FILE     = Path("/opt/videoplayer/playlist_order.json")
+STATE_FILE     = Path("/opt/videoplayer/state.json")
 LOG_FILE       = Path("/opt/videoplayer/logs/web.log")
 UPLOAD_MAX_MB  = 4096
 SUPPORTED_EXT  = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".ts", ".m4v"}
@@ -54,19 +57,23 @@ def get_ordered_playlist():
             order = json.loads(ORDER_FILE.read_text())
         except Exception:
             order = []
-    result = []
-    seen = set()
+    result, seen = [], set()
     for name in order:
         if name in files:
             p = files[name]
-            result.append({"name": name,
-                           "size_mb": round(p.stat().st_size / 1_048_576, 1)})
+            result.append({"name": name, "size_mb": round(p.stat().st_size / 1_048_576, 1)})
             seen.add(name)
     for name, p in sorted(files.items()):
         if name not in seen:
-            result.append({"name": name,
-                           "size_mb": round(p.stat().st_size / 1_048_576, 1)})
+            result.append({"name": name, "size_mb": round(p.stat().st_size / 1_048_576, 1)})
     return result
+
+
+def get_state() -> dict:
+    try:
+        return json.loads(STATE_FILE.read_text())
+    except Exception:
+        return {"now_playing": None, "status": "idle", "ts": 0}
 
 
 def save_order(names):
@@ -75,25 +82,17 @@ def save_order(names):
 
 
 def trigger_reload():
-    try:
-        RELOAD_FLAG.touch()
-    except Exception as e:
-        log.warning(f"Could not write reload flag: {e}")
-
-
-def get_player_status():
-    try:
-        result = subprocess.run(["pgrep", "-x", "mpv"], capture_output=True, text=True)
-        return "playing" if result.returncode == 0 else "idle"
-    except Exception:
-        return "unknown"
+    try: RELOAD_FLAG.touch()
+    except Exception as e: log.warning(f"Could not write reload flag: {e}")
 
 
 @app.route("/")
 def index():
+    state = get_state()
     return render_template("index.html",
                            playlist=get_ordered_playlist(),
-                           status=get_player_status())
+                           now_playing=state.get("now_playing"),
+                           status=state.get("status", "idle"))
 
 
 @app.route("/upload", methods=["POST"])
@@ -104,15 +103,12 @@ def upload():
     files = request.files.getlist("videos")
     uploaded, errors = [], []
     for f in files:
-        if not f or not f.filename:
-            continue
+        if not f or not f.filename: continue
         if not allowed_file(f.filename):
-            errors.append(f"{f.filename}: unsupported format")
-            continue
+            errors.append(f"{f.filename}: unsupported format"); continue
         filename = secure_filename(f.filename)
         try:
-            with lock:
-                f.save(str(VIDEO_DIR / filename))
+            with lock: f.save(str(VIDEO_DIR / filename))
             uploaded.append(filename)
             log.info(f"Uploaded: {filename}")
         except Exception as e:
@@ -120,8 +116,7 @@ def upload():
     if uploaded:
         trigger_reload()
         flash(f"Uploaded: {', '.join(uploaded)}", "success")
-    for e in errors:
-        flash(e, "error")
+    for e in errors: flash(e, "error")
     return redirect(url_for("index"))
 
 
@@ -130,8 +125,7 @@ def delete(filename):
     safe = secure_filename(filename)
     target = VIDEO_DIR / safe
     if target.exists():
-        with lock:
-            target.unlink()
+        with lock: target.unlink()
         if ORDER_FILE.exists():
             order = json.loads(ORDER_FILE.read_text())
             ORDER_FILE.write_text(json.dumps([n for n in order if n != safe], indent=2))
@@ -159,11 +153,29 @@ def restart():
     return redirect(url_for("index"))
 
 
+@app.route("/skip", methods=["POST"])
+def skip():
+    try: SKIP_FLAG.touch()
+    except Exception as e: log.warning(f"Could not write skip flag: {e}")
+    return jsonify({"ok": True})
+
+
+@app.route("/pause", methods=["POST"])
+def pause():
+    try: PAUSE_FLAG.touch()
+    except Exception as e: log.warning(f"Could not write pause flag: {e}")
+    return jsonify({"ok": True})
+
+
 @app.route("/api/status")
 def api_status():
-    return jsonify({"status": get_player_status(),
-                    "count": len(get_ordered_playlist()),
-                    "ts": time.time()})
+    state = get_state()
+    return jsonify({
+        "status":      state.get("status", "idle"),
+        "now_playing": state.get("now_playing"),
+        "count":       len(get_ordered_playlist()),
+        "ts":          time.time()
+    })
 
 
 if __name__ == "__main__":

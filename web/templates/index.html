@@ -7,26 +7,88 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #0f0f0f; --surface: #1a1a1a; --border: #2a2a2a;
-      --accent: #e84040; --text: #e8e8e8; --muted: #888;
+      --bg: #0f0f0f; --surface: #1a1a1a; --surface2: #222;
+      --border: #2a2a2a; --accent: #e84040; --accent2: #ff6b35;
+      --text: #e8e8e8; --muted: #888;
       --success: #4caf50; --error: #e84040; --info: #2196f3;
+      --playing-bg: #1a1a0a; --playing-border: #f5c518;
     }
     body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* ── Header ── */
     header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; align-items: center; gap: 1rem; }
     header h1 { font-size: 1.4rem; font-weight: 700; }
     header h1 span { color: var(--accent); }
-    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
-    .status-dot.playing { background: var(--success); box-shadow: 0 0 6px var(--success); }
-    .status-dot.idle { background: var(--accent); }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+    .status-dot.playing { background: var(--success); box-shadow: 0 0 8px var(--success); animation: pulse-dot 2s infinite; }
+    .status-dot.paused  { background: #f5c518; box-shadow: 0 0 8px #f5c518; }
+    .status-dot.idle    { background: var(--muted); }
+    @keyframes pulse-dot { 0%,100% { box-shadow: 0 0 4px var(--success); } 50% { box-shadow: 0 0 12px var(--success); } }
     .status-label { font-size: 0.8rem; color: var(--muted); }
+
     main { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+    /* ── Flash messages ── */
     .flashes { list-style: none; margin-bottom: 1.5rem; }
     .flashes li { padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 0.5rem; font-size: 0.9rem; }
     .flashes .success { background: #1a2e1a; border: 1px solid var(--success); color: var(--success); }
-    .flashes .error   { background: #2e1a1a; border: 1px solid var(--error); color: var(--error); }
-    .flashes .info    { background: #1a2038; border: 1px solid var(--info); color: var(--info); }
+    .flashes .error   { background: #2e1a1a; border: 1px solid var(--error);   color: var(--error);   }
+    .flashes .info    { background: #1a2038; border: 1px solid var(--info);     color: var(--info);    }
+
+    /* ── Cards ── */
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
     .card h2 { font-size: 0.75rem; font-weight: 600; margin-bottom: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* ── Now Playing Banner ── */
+    #now-playing-banner {
+      display: none;
+      align-items: center;
+      gap: 1rem;
+      background: linear-gradient(90deg, #1c1a00, #1a1a0a);
+      border: 1px solid #f5c518;
+      border-radius: 10px;
+      padding: 0.9rem 1.2rem;
+      margin-bottom: 1.5rem;
+    }
+    #now-playing-banner.visible { display: flex; }
+    .now-playing-icon { font-size: 1.5rem; flex-shrink: 0; }
+    .now-playing-text { flex: 1; min-width: 0; }
+    .now-playing-label { font-size: 0.65rem; color: #f5c518; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; margin-bottom: 0.2rem; }
+    .now-playing-name { font-size: 0.95rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .equalizer { display: flex; align-items: flex-end; gap: 3px; height: 20px; flex-shrink: 0; }
+    .equalizer span {
+      display: block; width: 4px; background: #f5c518; border-radius: 2px;
+      animation: eq 0.8s ease-in-out infinite alternate;
+    }
+    .equalizer span:nth-child(1) { height: 8px;  animation-delay: 0s;    animation-duration: 0.6s; }
+    .equalizer span:nth-child(2) { height: 16px; animation-delay: 0.15s; animation-duration: 0.8s; }
+    .equalizer span:nth-child(3) { height: 10px; animation-delay: 0.3s;  animation-duration: 0.5s; }
+    .equalizer span:nth-child(4) { height: 14px; animation-delay: 0.1s;  animation-duration: 0.9s; }
+    .equalizer.paused span { animation: none; height: 4px; }
+    @keyframes eq { from { transform: scaleY(0.4); } to { transform: scaleY(1); } }
+
+    /* ── Transport Controls ── */
+    .transport {
+      display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 0.9rem 1.2rem; margin-bottom: 1.5rem;
+    }
+    .transport-label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-right: auto; }
+    .ctrl-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+      padding: 0.5rem 1rem; border-radius: 7px; border: 1px solid var(--border);
+      font-size: 0.85rem; font-weight: 500; cursor: pointer;
+      background: var(--surface); color: var(--text);
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
+      min-width: 80px;
+    }
+    .ctrl-btn:hover { background: #2a2a2a; border-color: #444; }
+    .ctrl-btn:active { transform: scale(0.95); }
+    .ctrl-btn.pause-btn.is-paused { background: #1c1a00; border-color: #f5c518; color: #f5c518; }
+    .ctrl-btn.danger { border-color: #5a2020; color: var(--error); }
+    .ctrl-btn.danger:hover { background: #2e1a1a; }
+
+    /* ── Upload Zone ── */
     .upload-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 2.5rem; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
     .upload-zone:hover, .upload-zone.dragover { border-color: var(--accent); background: rgba(232,64,64,0.05); }
     .upload-zone input[type="file"] { display: none; }
@@ -41,21 +103,40 @@
     .upload-actions { margin-top: 1rem; display: flex; gap: 0.75rem; justify-content: center; }
     #progress-container { display: none; margin-top: 1rem; }
     #progress-bar-wrap { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; }
-    #progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent), #ff6b35); width: 0%; transition: width 0.2s; }
+    #progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); width: 0%; transition: width 0.2s; }
     #progress-label { font-size: 0.8rem; color: var(--muted); margin-top: 0.4rem; text-align: center; }
+
+    /* ── Playlist ── */
     #playlist { list-style: none; }
-    #playlist li { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0.5rem; border-bottom: 1px solid var(--border); transition: background 0.15s; }
+    #playlist li {
+      display: flex; align-items: center; gap: 0.75rem;
+      padding: 0.75rem 0.5rem; border-bottom: 1px solid var(--border);
+      border-radius: 6px; transition: background 0.15s;
+      border-left: 3px solid transparent;
+    }
     #playlist li:last-child { border-bottom: none; }
     #playlist li:hover { background: rgba(255,255,255,0.03); }
     #playlist li.drag-over { border-top: 2px solid var(--accent); }
+    #playlist li.now-playing {
+      background: var(--playing-bg);
+      border-left: 3px solid #f5c518;
+      border-radius: 0 6px 6px 0;
+    }
     .drag-handle { cursor: grab; color: var(--muted); font-size: 1.1rem; user-select: none; }
     .video-num { font-size: 0.75rem; color: var(--muted); min-width: 1.5rem; text-align: right; }
     .video-info { flex: 1; min-width: 0; }
     .video-name { font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #playlist li.now-playing .video-name { color: #f5c518; font-weight: 600; }
     .video-meta { font-size: 0.75rem; color: var(--muted); margin-top: 0.1rem; }
+    .playing-badge {
+      display: none; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.08em;
+      color: #f5c518; background: rgba(245,197,24,0.12);
+      border: 1px solid rgba(245,197,24,0.3); border-radius: 4px;
+      padding: 0.15rem 0.4rem; text-transform: uppercase; flex-shrink: 0;
+    }
+    #playlist li.now-playing .playing-badge { display: inline-flex; align-items: center; gap: 0.3rem; }
     .empty-state { text-align: center; padding: 3rem 1rem; color: var(--muted); }
     .empty-state .big { font-size: 3rem; margin-bottom: 0.5rem; }
-    .controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -64,6 +145,7 @@
   <h1>Video<span>Player</span></h1>
   <span class="status-label" id="status-label">{{ status }}</span>
 </header>
+
 <main>
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
@@ -72,6 +154,31 @@
       </ul>
     {% endif %}
   {% endwith %}
+
+  <!-- Now Playing Banner -->
+  <div id="now-playing-banner" class="{{ 'visible' if now_playing else '' }}">
+    <div class="now-playing-icon">🎬</div>
+    <div class="now-playing-text">
+      <div class="now-playing-label">Now Playing</div>
+      <div class="now-playing-name" id="now-playing-name">{{ now_playing or '' }}</div>
+    </div>
+    <div class="equalizer {{ 'paused' if status == 'paused' else '' }}" id="equalizer">
+      <span></span><span></span><span></span><span></span>
+    </div>
+  </div>
+
+  <!-- Transport Controls -->
+  <div class="transport">
+    <span class="transport-label">Playback</span>
+    <button class="ctrl-btn pause-btn {{ 'is-paused' if status == 'paused' else '' }}" id="pause-btn" onclick="sendControl('/pause')">
+      <span id="pause-icon">{{ '▶' if status == 'paused' else '⏸' }}</span>
+      <span id="pause-label">{{ 'Resume' if status == 'paused' else 'Pause' }}</span>
+    </button>
+    <button class="ctrl-btn" onclick="sendControl('/skip')">⏭ Skip</button>
+    <button class="ctrl-btn danger" onclick="confirmRestart()">↺ Restart</button>
+  </div>
+
+  <!-- Upload -->
   <div class="card">
     <h2>📁 Upload Videos</h2>
     <form id="upload-form" method="POST" action="/upload" enctype="multipart/form-data">
@@ -91,20 +198,24 @@
       </div>
     </form>
   </div>
+
+  <!-- Playlist -->
   <div class="card">
     <h2>▶ Playlist ({{ playlist|length }} video{{ 's' if playlist|length != 1 else '' }})</h2>
     {% if playlist %}
       <ul id="playlist">
         {% for video in playlist %}
-          <li draggable="true" data-name="{{ video.name }}">
+          <li draggable="true" data-name="{{ video.name }}"
+              class="{{ 'now-playing' if video.name == now_playing else '' }}">
             <span class="drag-handle">⠿</span>
             <span class="video-num">{{ loop.index }}</span>
-            <span>🎥</span>
             <div class="video-info">
               <div class="video-name" title="{{ video.name }}">{{ video.name }}</div>
               <div class="video-meta">{{ video.size_mb }} MB</div>
             </div>
-            <form method="POST" action="/delete/{{ video.name }}" onsubmit="return confirm('Delete {{ video.name }}?')">
+            <span class="playing-badge">▶ Playing</span>
+            <form method="POST" action="/delete/{{ video.name }}"
+                  onsubmit="return confirm('Delete {{ video.name }}?')">
               <button type="submit" class="btn btn-danger">✕</button>
             </form>
           </li>
@@ -114,61 +225,61 @@
       <div class="empty-state"><div class="big">📭</div><p>No videos yet. Upload some above.</p></div>
     {% endif %}
   </div>
-  <div class="card">
-    <h2>⚙ Controls</h2>
-    <div class="controls">
-      <form method="POST" action="/restart">
-        <button type="submit" class="btn btn-ghost">↺ Restart Playback</button>
-      </form>
-      <span style="font-size:0.8rem;color:var(--muted)">Drag rows to reorder • Changes apply immediately</span>
-    </div>
-  </div>
+
 </main>
+
 <script>
-const dropZone = document.getElementById('drop-zone');
+// ── Upload drag & drop ────────────────────────────────────────────────────────
+const dropZone  = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const uploadBtn = document.getElementById('upload-btn');
-const form = document.getElementById('upload-form');
+const form      = document.getElementById('upload-form');
+
 dropZone.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', () => {
-  if (fileInput.files.length > 0) { uploadBtn.style.display = 'inline-flex'; uploadBtn.textContent = `⬆ Upload ${fileInput.files.length} file(s)`; }
+  if (fileInput.files.length > 0) {
+    uploadBtn.style.display = 'inline-flex';
+    uploadBtn.textContent = `⬆ Upload ${fileInput.files.length} file(s)`;
+  }
 });
 ['dragenter','dragover'].forEach(e => dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.add('dragover'); }));
 ['dragleave','drop'].forEach(e => dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.remove('dragover'); }));
-dropZone.addEventListener('drop', ev => { ev.preventDefault(); fileInput.files = ev.dataTransfer.files; if (fileInput.files.length > 0) { uploadBtn.style.display = 'inline-flex'; uploadBtn.textContent = `⬆ Upload ${fileInput.files.length} file(s)`; } });
+dropZone.addEventListener('drop', ev => {
+  ev.preventDefault();
+  fileInput.files = ev.dataTransfer.files;
+  if (fileInput.files.length > 0) { uploadBtn.style.display = 'inline-flex'; uploadBtn.textContent = `⬆ Upload ${fileInput.files.length} file(s)`; }
+});
 form.addEventListener('submit', ev => {
   ev.preventDefault();
   if (!fileInput.files.length) return;
   const xhr = new XMLHttpRequest();
   document.getElementById('progress-container').style.display = 'block';
   uploadBtn.disabled = true;
-  xhr.upload.addEventListener('progress', e => { if (e.lengthComputable) { const p = Math.round(e.loaded/e.total*100); document.getElementById('progress-bar').style.width = p+'%'; document.getElementById('progress-label').textContent = `Uploading… ${p}%`; } });
-  xhr.addEventListener('load', () => { document.getElementById('progress-label').textContent = 'Done! Reloading…'; setTimeout(() => location.reload(), 1000); });
+  xhr.upload.addEventListener('progress', e => {
+    if (e.lengthComputable) { const p = Math.round(e.loaded/e.total*100); document.getElementById('progress-bar').style.width=p+'%'; document.getElementById('progress-label').textContent=`Uploading… ${p}%`; }
+  });
+  xhr.addEventListener('load', () => { document.getElementById('progress-label').textContent='Done! Reloading…'; setTimeout(() => location.reload(), 1000); });
   xhr.open('POST', '/upload');
   xhr.send(new FormData(form));
 });
+
+// ── Playlist drag-to-reorder ──────────────────────────────────────────────────
 const list = document.getElementById('playlist');
 if (list) {
   let dragged = null;
-
-  // Only allow dragging from the handle or the li itself, not the delete button
   list.addEventListener('dragstart', e => {
     const li = e.target.closest('li');
-    if (!li) { e.preventDefault(); return; }
-    // Prevent drag if started on the delete button/form
-    if (e.target.closest('form')) { e.preventDefault(); return; }
+    if (!li || e.target.closest('form')) { e.preventDefault(); return; }
     dragged = li;
     setTimeout(() => { if (dragged) dragged.style.opacity = '0.4'; }, 0);
   });
-
-  list.addEventListener('dragend', e => {
+  list.addEventListener('dragend', () => {
     if (!dragged) return;
     dragged.style.opacity = '1';
     dragged = null;
     list.querySelectorAll('li').forEach(li => li.classList.remove('drag-over'));
     saveOrder();
   });
-
   list.addEventListener('dragover', e => {
     e.preventDefault();
     if (!dragged) return;
@@ -177,25 +288,85 @@ if (list) {
     list.querySelectorAll('li').forEach(li => li.classList.remove('drag-over'));
     t.classList.add('drag-over');
     const rect = t.getBoundingClientRect();
-    const mid = rect.top + rect.height / 2;
-    list.insertBefore(dragged, e.clientY < mid ? t : t.nextSibling);
+    list.insertBefore(dragged, e.clientY < rect.top + rect.height / 2 ? t : t.nextSibling);
   });
-
-  list.addEventListener('drop', e => { e.preventDefault(); }); // prevent browser default
+  list.addEventListener('drop', e => e.preventDefault());
 
   function saveOrder() {
     const order = [...list.querySelectorAll('li')].map(li => li.dataset.name);
     list.querySelectorAll('.video-num').forEach((el, i) => el.textContent = i + 1);
-    fetch('/reorder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order })
-    }).then(r => r.json()).then(d => {
-      if (!d.ok) console.error('Reorder failed', d);
-    }).catch(err => console.error('Reorder error', err));
+    fetch('/reorder', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({order}) })
+      .then(r => r.json()).catch(err => console.error('Reorder error', err));
   }
 }
-setInterval(() => { fetch('/api/status').then(r=>r.json()).then(d=>{ document.getElementById('status-dot').className='status-dot '+d.status; document.getElementById('status-label').textContent=d.status; }).catch(()=>{}); }, 5000);
+
+// ── Transport controls ────────────────────────────────────────────────────────
+function sendControl(endpoint) {
+  fetch(endpoint, { method: 'POST' }).catch(err => console.error(err));
+}
+
+function confirmRestart() {
+  if (confirm('Restart playback from beginning?')) sendControl('/restart');
+}
+
+// ── Status polling ────────────────────────────────────────────────────────────
+let lastNowPlaying = {{ ('"' + now_playing + '"') if now_playing else 'null' }};
+let lastStatus     = '{{ status }}';
+
+function applyState(status, nowPlaying) {
+  // Status dot + label
+  const dot   = document.getElementById('status-dot');
+  const label = document.getElementById('status-label');
+  dot.className   = 'status-dot ' + status;
+  label.textContent = status;
+
+  // Pause button
+  const pauseBtn   = document.getElementById('pause-btn');
+  const pauseIcon  = document.getElementById('pause-icon');
+  const pauseLabel = document.getElementById('pause-label');
+  const isPaused   = status === 'paused';
+  pauseBtn.classList.toggle('is-paused', isPaused);
+  pauseIcon.textContent  = isPaused ? '▶' : '⏸';
+  pauseLabel.textContent = isPaused ? 'Resume' : 'Pause';
+
+  // Now Playing banner
+  const banner    = document.getElementById('now-playing-banner');
+  const nameEl    = document.getElementById('now-playing-name');
+  const equalizer = document.getElementById('equalizer');
+  if (nowPlaying && status !== 'idle') {
+    banner.classList.add('visible');
+    nameEl.textContent = nowPlaying;
+    equalizer.classList.toggle('paused', isPaused);
+  } else {
+    banner.classList.remove('visible');
+  }
+
+  // Highlight row in playlist
+  if (list) {
+    list.querySelectorAll('li').forEach(li => {
+      const isPlaying = li.dataset.name === nowPlaying && status !== 'idle';
+      li.classList.toggle('now-playing', isPlaying);
+    });
+  }
+
+  lastNowPlaying = nowPlaying;
+  lastStatus     = status;
+}
+
+setInterval(() => {
+  fetch('/api/status')
+    .then(r => r.json())
+    .then(d => {
+      if (d.status !== lastStatus || d.now_playing !== lastNowPlaying) {
+        applyState(d.status, d.now_playing);
+        // If a new video started, reload page to get fresh playlist order
+        if (d.now_playing !== lastNowPlaying && d.now_playing) {
+          // Just update highlight without full reload
+        }
+      }
+    })
+    .catch(() => {});
+}, 2000);
 </script>
 </body>
 </html>
