@@ -150,10 +150,50 @@ form.addEventListener('submit', ev => {
 const list = document.getElementById('playlist');
 if (list) {
   let dragged = null;
-  list.addEventListener('dragstart', e => { dragged = e.target.closest('li'); setTimeout(() => dragged.style.opacity = '0.4', 0); });
-  list.addEventListener('dragend', () => { dragged.style.opacity = '1'; list.querySelectorAll('li').forEach(li => li.classList.remove('drag-over')); saveOrder(); });
-  list.addEventListener('dragover', e => { e.preventDefault(); const t = e.target.closest('li'); if (!t || t === dragged) return; list.querySelectorAll('li').forEach(li => li.classList.remove('drag-over')); t.classList.add('drag-over'); const mid = t.getBoundingClientRect().top + t.getBoundingClientRect().height/2; list.insertBefore(dragged, e.clientY < mid ? t : t.nextSibling); });
-  function saveOrder() { const order = [...list.querySelectorAll('li')].map(li => li.dataset.name); list.querySelectorAll('.video-num').forEach((el,i) => el.textContent = i+1); fetch('/reorder', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({order})}); }
+
+  // Only allow dragging from the handle or the li itself, not the delete button
+  list.addEventListener('dragstart', e => {
+    const li = e.target.closest('li');
+    if (!li) { e.preventDefault(); return; }
+    // Prevent drag if started on the delete button/form
+    if (e.target.closest('form')) { e.preventDefault(); return; }
+    dragged = li;
+    setTimeout(() => { if (dragged) dragged.style.opacity = '0.4'; }, 0);
+  });
+
+  list.addEventListener('dragend', e => {
+    if (!dragged) return;
+    dragged.style.opacity = '1';
+    dragged = null;
+    list.querySelectorAll('li').forEach(li => li.classList.remove('drag-over'));
+    saveOrder();
+  });
+
+  list.addEventListener('dragover', e => {
+    e.preventDefault();
+    if (!dragged) return;
+    const t = e.target.closest('li');
+    if (!t || t === dragged) return;
+    list.querySelectorAll('li').forEach(li => li.classList.remove('drag-over'));
+    t.classList.add('drag-over');
+    const rect = t.getBoundingClientRect();
+    const mid = rect.top + rect.height / 2;
+    list.insertBefore(dragged, e.clientY < mid ? t : t.nextSibling);
+  });
+
+  list.addEventListener('drop', e => { e.preventDefault(); }); // prevent browser default
+
+  function saveOrder() {
+    const order = [...list.querySelectorAll('li')].map(li => li.dataset.name);
+    list.querySelectorAll('.video-num').forEach((el, i) => el.textContent = i + 1);
+    fetch('/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order })
+    }).then(r => r.json()).then(d => {
+      if (!d.ok) console.error('Reorder failed', d);
+    }).catch(err => console.error('Reorder error', err));
+  }
 }
 setInterval(() => { fetch('/api/status').then(r=>r.json()).then(d=>{ document.getElementById('status-dot').className='status-dot '+d.status; document.getElementById('status-label').textContent=d.status; }).catch(()=>{}); }, 5000);
 </script>

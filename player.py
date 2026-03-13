@@ -7,6 +7,7 @@ Watches /opt/videoplayer/videos and reacts to playlist changes live.
 """
 
 import sys
+import json
 import time
 import signal
 import subprocess
@@ -20,6 +21,7 @@ VIDEO_DIR     = Path("/opt/videoplayer/videos")
 PLACEHOLDER   = Path("/opt/videoplayer/web/static/placeholder.jpg")
 LOG_FILE      = Path("/opt/videoplayer/logs/player.log")
 RELOAD_FLAG   = Path("/opt/videoplayer/.reload")
+ORDER_FILE    = Path("/opt/videoplayer/playlist_order.json")
 SUPPORTED_EXT = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".ts", ".m4v"}
 
 
@@ -78,11 +80,30 @@ stop_event   = threading.Event()
 
 
 def get_playlist():
+    """Return playlist in saved order, falling back to alphabetical for new files."""
     VIDEO_DIR.mkdir(parents=True, exist_ok=True)
-    return sorted(
-        [p for p in VIDEO_DIR.iterdir() if p.suffix.lower() in SUPPORTED_EXT],
-        key=lambda p: p.name.lower()
-    )
+    files = {p.name: p for p in VIDEO_DIR.iterdir() if p.suffix.lower() in SUPPORTED_EXT}
+
+    # Load saved order if it exists
+    order = []
+    if ORDER_FILE.exists():
+        try:
+            order = json.loads(ORDER_FILE.read_text())
+        except Exception:
+            order = []
+
+    result = []
+    seen = set()
+    # First: files in saved order
+    for name in order:
+        if name in files:
+            result.append(files[name])
+            seen.add(name)
+    # Then: any new files not yet in the order file (alphabetical)
+    for name in sorted(files):
+        if name not in seen:
+            result.append(files[name])
+    return result
 
 
 def kill_mpv():
