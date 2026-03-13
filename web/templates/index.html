@@ -170,12 +170,12 @@
   <!-- Transport Controls -->
   <div class="transport">
     <span class="transport-label">Playback</span>
-    <button class="ctrl-btn pause-btn {{ 'is-paused' if status == 'paused' else '' }}" id="pause-btn" onclick="sendControl('/pause')">
+    <button class="ctrl-btn pause-btn {{ 'is-paused' if status == 'paused' else '' }}" id="pause-btn">
       <span id="pause-icon">{{ '▶' if status == 'paused' else '⏸' }}</span>
       <span id="pause-label">{{ 'Resume' if status == 'paused' else 'Pause' }}</span>
     </button>
-    <button class="ctrl-btn" onclick="sendControl('/skip')">⏭ Skip</button>
-    <button class="ctrl-btn danger" onclick="confirmRestart()">↺ Restart</button>
+    <button class="ctrl-btn" id="skip-btn">⏭ Skip</button>
+    <button class="ctrl-btn danger" id="restart-btn">↺ Restart</button>
   </div>
 
   <!-- Upload -->
@@ -305,12 +305,14 @@ function sendControl(endpoint) {
   fetch(endpoint, { method: 'POST' }).catch(err => console.error(err));
 }
 
-function confirmRestart() {
+document.getElementById('pause-btn').addEventListener('click', () => sendControl('/pause'));
+document.getElementById('skip-btn').addEventListener('click',  () => sendControl('/skip'));
+document.getElementById('restart-btn').addEventListener('click', () => {
   if (confirm('Restart playback from beginning?')) sendControl('/restart');
-}
+});
 
 // ── Status polling ────────────────────────────────────────────────────────────
-let lastNowPlaying = {{ ('"' + now_playing + '"') if now_playing else 'null' }};
+let lastNowPlaying = {{ now_playing|tojson }};
 let lastStatus     = '{{ status }}';
 
 function applyState(status, nowPlaying) {
