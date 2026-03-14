@@ -19,6 +19,96 @@ info() { echo -e "${BLUE}[→]${NC} $1"; }
 [ "$EUID" -ne 0 ] && err "Please run as root. Example:
   curl -fsSL https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main/setup.sh | sudo WIFI_COUNTRY=GB bash"
 
+# ── Raspberry Pi OS Lite check ────────────────────────────────────────────────
+# The videoplayer uses mpv in DRM/KMS mode and takes over the display directly.
+# A desktop environment (display manager, compositor, Wayland/X session) will
+# conflict with DRM access and prevent video from showing on screen.
+# This check runs BEFORE anything is installed so we fail fast.
+
+check_lite_os() {
+    local desktop_signals=0
+    local reasons=()
+
+    # Signal 1: pi-gen stage in issue.txt
+    # stage2 = Lite, stage4 = Desktop, stage5 = Desktop + Recommended software
+    local issue_file=""
+    for f in /boot/firmware/issue.txt /boot/issue.txt; do
+        [ -f "$f" ] && issue_file="$f" && break
+    done
+    if [ -n "$issue_file" ]; then
+        if grep -q "stage4\|stage5" "$issue_file" 2>/dev/null; then
+            desktop_signals=$((desktop_signals + 3))
+            reasons+=("issue.txt reports $(grep -o 'stage[0-9]' "$issue_file") (Desktop)")
+        elif grep -q "stage2" "$issue_file" 2>/dev/null; then
+            log "OS variant: Raspberry Pi OS Lite (stage2) ✓"
+        fi
+    fi
+
+    # Signal 2: systemd default target
+    local target
+    target=$(systemctl get-default 2>/dev/null || echo "unknown")
+    if [ "$target" = "graphical.target" ]; then
+        desktop_signals=$((desktop_signals + 3))
+        reasons+=("systemd default target is graphical.target (desktop autostart enabled)")
+    fi
+
+    # Signal 3: active display manager
+    for dm in lightdm gdm3 sddm xdm; do
+        if systemctl is-active --quiet "$dm" 2>/dev/null; then
+            desktop_signals=$((desktop_signals + 3))
+            reasons+=("display manager '$dm' is running")
+            break
+        fi
+    done
+
+    # Signal 4: desktop packages installed
+    for pkg in rpd-plym-splash lxde-core xfce4 gnome-shell labwc wayfire weston mutter openbox-lxde; do
+        if dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
+            desktop_signals=$((desktop_signals + 2))
+            reasons+=("desktop package '$pkg' is installed")
+            break
+        fi
+    done
+
+    # Signal 5: active display session
+    if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then
+        desktop_signals=$((desktop_signals + 2))
+        reasons+=("active display session detected (DISPLAY=$DISPLAY WAYLAND_DISPLAY=$WAYLAND_DISPLAY)")
+    fi
+
+    # Score >= 3 means we're confident a desktop is present
+    if [ "$desktop_signals" -ge 3 ]; then
+        echo ""
+        echo -e "${RED}  ╔══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${RED}  ║  ✘  Desktop OS detected — Lite required                      ║${NC}"
+        echo -e "${RED}  ╠══════════════════════════════════════════════════════════════╣${NC}"
+        for reason in "${reasons[@]}"; do
+            printf "${RED}  ║  • %-60s║${NC}\n" "$reason"
+        done
+        echo -e "${RED}  ╠══════════════════════════════════════════════════════════════╣${NC}"
+        echo -e "${RED}  ║  VideoPlayer uses mpv in DRM/KMS mode and takes over the     ║${NC}"
+        echo -e "${RED}  ║  display directly. A running desktop will block DRM access   ║${NC}"
+        echo -e "${RED}  ║  and no video will appear on screen.                         ║${NC}"
+        echo -e "${RED}  ║                                                              ║${NC}"
+        echo -e "${RED}  ║  Please flash Raspberry Pi OS Lite (64-bit) and retry:       ║${NC}"
+        echo -e "${RED}  ║  https://www.raspberrypi.com/software/                       ║${NC}"
+        echo -e "${RED}  ╚══════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        # Allow override for advanced users who know what they're doing
+        if [ "${FORCE_INSTALL:-0}" = "1" ]; then
+            warn "FORCE_INSTALL=1 set — skipping OS check. You are on your own!"
+        else
+            echo -e "  To override (advanced):  ${YELLOW}curl ... | sudo WIFI_COUNTRY=XX FORCE_INSTALL=1 bash${NC}"
+            echo ""
+            exit 1
+        fi
+    else
+        log "OS check passed — no desktop environment detected ✓"
+    fi
+}
+
+check_lite_os
+
 REPO="https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main"
 INSTALL_DIR="/opt/videoplayer"
 SERVICE_USER="videoplayer"
