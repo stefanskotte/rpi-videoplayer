@@ -177,7 +177,7 @@ def start_mpv(playlist):
         "--no-input-default-bindings",
         "--no-terminal",
         "--really-quiet",
-        "--hwdec=auto",
+        "--hwdec=v4l2m2m-copy",  # RPi5: HW HEVC via rpi-hevc-dec; graceful SW fallback for H.264
         "--loop-playlist=inf",      # loop the whole playlist forever
         "--loop-file=no",
         f"--input-ipc-server={MPV_SOCKET}",
@@ -226,7 +226,9 @@ def state_tracker():
                 with paused_lock:
                     status = "paused" if paused else ("playing" if name else "idle")
                 if name != last:
-                    log.info(f"Now playing: {name}")
+                    hwdec = mpv_get("hwdec-current")
+                    codec = mpv_get("video-format")
+                    log.info(f"Now playing: {name} | codec={codec} hwdec={hwdec}")
                     last = name
                 write_state(name, status)
             else:
