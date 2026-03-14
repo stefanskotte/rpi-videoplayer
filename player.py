@@ -239,7 +239,7 @@ def state_tracker():
 # ── Main play loop ────────────────────────────────────────────────────────────
 
 def play_loop():
-    global paused
+    global paused, mpv_proc
     log.info(f"Using DRM device: {DRM_CARD}")
     write_state(None, "idle")
 
@@ -265,7 +265,6 @@ def play_loop():
                         f"--input-ipc-server={MPV_SOCKET}",
                         str(PLACEHOLDER)
                     ]
-                    global mpv_proc
                     MPV_SOCKET.unlink(missing_ok=True)
                     mpv_proc = subprocess.Popen(args)
                     wait_for_socket()
