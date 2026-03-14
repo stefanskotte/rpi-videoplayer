@@ -63,6 +63,7 @@ stop_event   = threading.Event()
 reload_event = threading.Event()
 skip_event   = threading.Event()
 paused       = False
+user_stopped = False  # True after Stop — stay on splash until Restart/Skip
 paused_lock  = threading.Lock()
 
 # ── State file ────────────────────────────────────────────────────────────────
@@ -226,7 +227,12 @@ def state_tracker():
             if mpv_proc and mpv_proc.poll() is None:
                 name = get_current_filename()
                 with paused_lock:
-                    status = "paused" if paused else ("playing" if name else "idle")
+                    if user_stopped:
+                        status = "stopped"
+                    elif paused:
+                        status = "paused"
+                    else:
+                        status = "playing" if name else "idle"
                 if name != last:
                     hwdec = mpv_get("hwdec-current")
                     codec = mpv_get("video-format")
@@ -243,7 +249,7 @@ def state_tracker():
 # ── Main play loop ────────────────────────────────────────────────────────────
 
 def play_loop():
-    global paused, mpv_proc
+    global paused, mpv_proc, user_stopped
     log.info(f"Using DRM device: {DRM_CARD}")
     write_state(None, "idle")
 
@@ -256,10 +262,15 @@ def play_loop():
         skip_event.clear()
         playlist = get_playlist()
 
-        if not playlist:
-            log.info("No videos — showing splash screen")
-            write_state(None, "idle")
-            # Show splash (or fallback placeholder) while waiting for uploads
+        # Show splash if no videos OR user explicitly stopped
+        if not playlist or user_stopped:
+            if not playlist:
+                log.info("No videos — showing splash screen")
+            else:
+                log.info("Stopped — showing splash screen, waiting for user action")
+            write_state(None, "stopped" if user_stopped else "idle")
+
+            # Start splash if not already showing
             splash = SPLASH_FILE if SPLASH_FILE.exists() else (PLACEHOLDER if PLACEHOLDER.exists() else None)
             if (mpv_proc is None or mpv_proc.poll() is not None) and splash:
                 MPV_SOCKET.unlink(missing_ok=True)
@@ -270,9 +281,17 @@ def play_loop():
                     f"--input-ipc-server={MPV_SOCKET}", str(splash)
                 ])
                 wait_for_socket()
-            # Wait for reload (new video upload) or stop
-            while not reload_event.is_set() and not stop_event.is_set():
-                time.sleep(1)
+
+            # Wait until: new video uploaded (if idle), or skip/restart clears user_stopped
+            while not stop_event.is_set():
+                if skip_event.is_set() or reload_event.is_set():
+                    user_stopped = False
+                    break
+                # If no videos, also wake on reload (new upload)
+                if not user_stopped and reload_event.is_set():
+                    break
+                time.sleep(0.5)
+
             kill_mpv()
             continue
 
@@ -318,8 +337,10 @@ class ControlFlagHandler(FileSystemEventHandler):
         name = Path(event.src_path).name
         if name == ".reload":
             log.info("Reload flag — restarting playlist")
+            user_stopped = False
             reload_event.set()
         elif name == ".skip":
+            user_stopped = False
             skip_event.set()
             try: SKIP_FLAG.unlink(missing_ok=True)
             except: pass
@@ -350,13 +371,14 @@ class ControlFlagHandler(FileSystemEventHandler):
                 log.info("Resumed")
 
     def _do_stop(self):
-        global paused
-        log.info("Stop requested — killing mpv and showing splash")
+        global paused, user_stopped
+        log.info("Stop requested — showing splash, waiting for user action")
         with paused_lock:
             paused = False
+        user_stopped = True
         kill_mpv()
-        write_state(None, "idle")
-        reload_event.set()  # wake play_loop so it re-evaluates (playlist still exists → restart)
+        write_state(None, "stopped")
+        reload_event.set()  # wake play_loop so it enters the splash wait
 
 
 class VideoFolderHandler(FileSystemEventHandler):

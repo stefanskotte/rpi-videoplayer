@@ -22,6 +22,7 @@
     .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
     .status-dot.playing { background: var(--success); box-shadow: 0 0 8px var(--success); animation: pulse-dot 2s infinite; }
     .status-dot.paused  { background: #f5c518; box-shadow: 0 0 8px #f5c518; }
+    .status-dot.stopped { background: var(--error); box-shadow: 0 0 8px var(--error); }
     .status-dot.idle    { background: var(--muted); }
     @keyframes pulse-dot { 0%,100% { box-shadow: 0 0 4px var(--success); } 50% { box-shadow: 0 0 12px var(--success); } }
     .status-label { font-size: 0.8rem; color: var(--muted); }
@@ -85,7 +86,7 @@
     .ctrl-btn:hover { background: #2a2a2a; border-color: #444; }
     .ctrl-btn:active { transform: scale(0.95); }
     .ctrl-btn.pause-btn.is-paused { background: #1c1a00; border-color: #f5c518; color: #f5c518; }
-    .ctrl-btn.danger { border-color: #5a2020; color: var(--error); }
+    .ctrl-btn.stop-btn.is-stopped { background: #3d1515; border-color: var(--error); color: var(--error); }
     .ctrl-btn.danger:hover { background: #2e1a1a; }
 
     /* ── Upload Zone ── */
@@ -175,7 +176,7 @@
       <span id="pause-label">{{ 'Resume' if status == 'paused' else 'Pause' }}</span>
     </button>
     <button class="ctrl-btn" id="skip-btn">⏭ Skip</button>
-    <button class="ctrl-btn danger" id="stop-btn">⏹ Stop</button>
+    <button class="ctrl-btn danger stop-btn {{ 'is-stopped' if status == 'stopped' else '' }}" id="stop-btn">⏹ Stop</button>
     <button class="ctrl-btn danger" id="restart-btn">↺ Restart</button>
   </div>
 
@@ -329,9 +330,14 @@ function applyState(status, nowPlaying) {
   const pauseIcon  = document.getElementById('pause-icon');
   const pauseLabel = document.getElementById('pause-label');
   const isPaused   = status === 'paused';
+  const isStopped  = status === 'stopped';
   pauseBtn.classList.toggle('is-paused', isPaused);
   pauseIcon.textContent  = isPaused ? '▶' : '⏸';
   pauseLabel.textContent = isPaused ? 'Resume' : 'Pause';
+  document.getElementById('stop-btn').classList.toggle('is-stopped', isStopped);
+  // Disable pause/skip while stopped
+  document.getElementById('pause-btn').disabled = isStopped;
+  document.getElementById('skip-btn').disabled  = isStopped;
 
   // Now Playing banner
   const banner    = document.getElementById('now-playing-banner');
