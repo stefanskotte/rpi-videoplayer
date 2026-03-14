@@ -175,6 +175,7 @@
       <span id="pause-label">{{ 'Resume' if status == 'paused' else 'Pause' }}</span>
     </button>
     <button class="ctrl-btn" id="skip-btn">⏭ Skip</button>
+    <button class="ctrl-btn danger" id="stop-btn">⏹ Stop</button>
     <button class="ctrl-btn danger" id="restart-btn">↺ Restart</button>
   </div>
 
@@ -307,6 +308,7 @@ function sendControl(endpoint) {
 
 document.getElementById('pause-btn').addEventListener('click', () => sendControl('/pause'));
 document.getElementById('skip-btn').addEventListener('click',  () => sendControl('/skip'));
+document.getElementById('stop-btn').addEventListener('click',  () => sendControl('/stop'));
 document.getElementById('restart-btn').addEventListener('click', () => {
   if (confirm('Restart playback from beginning?')) sendControl('/restart');
 });

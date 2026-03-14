@@ -21,6 +21,7 @@ VIDEO_DIR      = Path("/opt/videoplayer/videos")
 RELOAD_FLAG    = Path("/opt/videoplayer/.reload")
 SKIP_FLAG      = Path("/opt/videoplayer/.skip")
 PAUSE_FLAG     = Path("/opt/videoplayer/.pause")
+STOP_FLAG      = Path("/opt/videoplayer/.stop")
 ORDER_FILE     = Path("/opt/videoplayer/playlist_order.json")
 STATE_FILE     = Path("/opt/videoplayer/state.json")
 LOG_FILE       = Path("/opt/videoplayer/logs/web.log")
@@ -164,6 +165,13 @@ def skip():
 def pause():
     try: PAUSE_FLAG.touch()
     except Exception as e: log.warning(f"Could not write pause flag: {e}")
+    return jsonify({"ok": True})
+
+
+@app.route("/stop", methods=["POST"])
+def stop():
+    try: STOP_FLAG.touch()
+    except Exception as e: log.warning(f"Could not write stop flag: {e}")
     return jsonify({"ok": True})
 
 

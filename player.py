@@ -26,6 +26,7 @@ LOG_FILE      = Path("/opt/videoplayer/logs/player.log")
 RELOAD_FLAG   = Path("/opt/videoplayer/.reload")
 SKIP_FLAG     = Path("/opt/videoplayer/.skip")
 PAUSE_FLAG    = Path("/opt/videoplayer/.pause")
+STOP_FLAG     = Path("/opt/videoplayer/.stop")
 STATE_FILE    = Path("/opt/videoplayer/state.json")
 ORDER_FILE    = Path("/opt/videoplayer/playlist_order.json")
 MPV_SOCKET    = Path("/tmp/mpv-videoplayer.sock")
@@ -326,6 +327,10 @@ class ControlFlagHandler(FileSystemEventHandler):
             self._toggle_pause()
             try: PAUSE_FLAG.unlink(missing_ok=True)
             except: pass
+        elif name == ".stop":
+            self._do_stop()
+            try: STOP_FLAG.unlink(missing_ok=True)
+            except: pass
 
     on_modified = on_created
 
@@ -343,6 +348,15 @@ class ControlFlagHandler(FileSystemEventHandler):
                 state = read_state()
                 write_state(state.get("now_playing"), "playing")
                 log.info("Resumed")
+
+    def _do_stop(self):
+        global paused
+        log.info("Stop requested — killing mpv and showing splash")
+        with paused_lock:
+            paused = False
+        kill_mpv()
+        write_state(None, "idle")
+        reload_event.set()  # wake play_loop so it re-evaluates (playlist still exists → restart)
 
 
 class VideoFolderHandler(FileSystemEventHandler):
