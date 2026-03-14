@@ -48,9 +48,14 @@ mkdir -p "$INSTALL_DIR"/{videos,web/templates,web/static,logs}
 cp player.py                "$INSTALL_DIR/player.py"
 cp web/app.py               "$INSTALL_DIR/web/app.py"
 cp web/templates/index.html "$INSTALL_DIR/web/templates/index.html"
+cp generate_splash.py       "$INSTALL_DIR/generate_splash.py"
 chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
 chmod +x "$INSTALL_DIR/player.py"
 log "Files installed to $INSTALL_DIR"
+
+info "Generating splash screen..."
+apt-get install -y -qq python3-pil
+python3 "$INSTALL_DIR/generate_splash.py" && log "Splash screen generated" || warn "Splash generation failed (non-fatal)"
 
 # ── Access Point ──────────────────────────────────────────────────────────────
 info "Configuring WiFi access point ($SSID)..."

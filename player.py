@@ -21,6 +21,7 @@ from watchdog.events import FileSystemEventHandler
 
 VIDEO_DIR     = Path("/opt/videoplayer/videos")
 PLACEHOLDER   = Path("/opt/videoplayer/web/static/placeholder.jpg")
+SPLASH_FILE   = Path("/opt/videoplayer/web/static/splash.jpg")
 LOG_FILE      = Path("/opt/videoplayer/logs/player.log")
 RELOAD_FLAG   = Path("/opt/videoplayer/.reload")
 SKIP_FLAG     = Path("/opt/videoplayer/.skip")
@@ -255,21 +256,19 @@ def play_loop():
         playlist = get_playlist()
 
         if not playlist:
-            log.info("No videos — waiting for uploads...")
+            log.info("No videos — showing splash screen")
             write_state(None, "idle")
-            # Show placeholder if available, otherwise blank (mpv holds the display)
-            if mpv_proc is None or mpv_proc.poll() is not None:
-                if PLACEHOLDER.exists():
-                    args = [
-                        "mpv", "--vo=drm", f"--drm-device={DRM_CARD}",
-                        "--fullscreen", "--no-osc", "--no-terminal",
-                        "--really-quiet", "--image-display-duration=inf",
-                        f"--input-ipc-server={MPV_SOCKET}",
-                        str(PLACEHOLDER)
-                    ]
-                    MPV_SOCKET.unlink(missing_ok=True)
-                    mpv_proc = subprocess.Popen(args)
-                    wait_for_socket()
+            # Show splash (or fallback placeholder) while waiting for uploads
+            splash = SPLASH_FILE if SPLASH_FILE.exists() else (PLACEHOLDER if PLACEHOLDER.exists() else None)
+            if (mpv_proc is None or mpv_proc.poll() is not None) and splash:
+                MPV_SOCKET.unlink(missing_ok=True)
+                mpv_proc = subprocess.Popen([
+                    "mpv", "--vo=drm", f"--drm-device={DRM_CARD}",
+                    "--fullscreen", "--no-osc", "--no-terminal",
+                    "--really-quiet", "--image-display-duration=inf",
+                    f"--input-ipc-server={MPV_SOCKET}", str(splash)
+                ])
+                wait_for_socket()
             # Wait for reload (new video upload) or stop
             while not reload_event.is_set() and not stop_event.is_set():
                 time.sleep(1)
