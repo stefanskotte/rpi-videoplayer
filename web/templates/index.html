@@ -87,6 +87,7 @@
     .ctrl-btn:active { transform: scale(0.95); }
     .ctrl-btn.pause-btn.is-paused { background: #1c1a00; border-color: #f5c518; color: #f5c518; }
     .ctrl-btn.stop-btn.is-stopped { background: #3d1515; border-color: var(--error); color: var(--error); }
+    .ctrl-btn.rotate-btn.is-portrait { background: #0d1e2e; border-color: var(--info); color: var(--info); }
     .ctrl-btn.danger:hover { background: #2e1a1a; }
 
     /* ── Upload Zone ── */
@@ -178,6 +179,13 @@
     <button class="ctrl-btn" id="skip-btn">⏭ Skip</button>
     <button class="ctrl-btn danger stop-btn {{ 'is-stopped' if status == 'stopped' else '' }}" id="stop-btn">⏹ Stop</button>
     <button class="ctrl-btn danger" id="restart-btn">↺ Restart</button>
+    <div style="margin-left:auto">
+      <button class="ctrl-btn rotate-btn {{ 'is-portrait' if rotation != 0 else '' }}" id="rotate-btn"
+              title="Current rotation: {{ rotation }}°">
+        <span id="rotate-icon">{{ '📱' if rotation != 0 else '🖥️' }}</span>
+        <span id="rotate-label">{{ 'Portrait (' + rotation|string + '°)' if rotation != 0 else 'Landscape' }}</span>
+      </button>
+    </div>
   </div>
 
   <!-- Upload -->
@@ -314,6 +322,35 @@ document.getElementById('restart-btn').addEventListener('click', () => {
   if (confirm('Restart playback from beginning?')) sendControl('/restart');
 });
 
+// ── Rotation control ──────────────────────────────────────────────────────────
+let currentRotation = {{ rotation }};
+const ROTATIONS = [0, 90, 270];  // landscape, portrait-right, portrait-left
+
+document.getElementById('rotate-btn').addEventListener('click', () => {
+  const next = ROTATIONS[(ROTATIONS.indexOf(currentRotation) + 1) % ROTATIONS.length];
+  const label = next === 0 ? 'Landscape' : `Portrait (${next}°)`;
+  if (!confirm(`Switch display to ${label}? Playback will restart.`)) return;
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rotation: next })
+  }).then(r => r.json()).then(d => {
+    if (d.ok) applyRotation(next);
+  }).catch(err => console.error('Rotation error', err));
+});
+
+function applyRotation(r) {
+  currentRotation = r;
+  const isPortrait = r !== 0;
+  const btn   = document.getElementById('rotate-btn');
+  const icon  = document.getElementById('rotate-icon');
+  const label = document.getElementById('rotate-label');
+  btn.classList.toggle('is-portrait', isPortrait);
+  icon.textContent  = isPortrait ? '📱' : '🖥️';
+  label.textContent = isPortrait ? `Portrait (${r}°)` : 'Landscape';
+  btn.title = `Current rotation: ${r}°`;
+}
+
 // ── Status polling ────────────────────────────────────────────────────────────
 let lastNowPlaying = {{ now_playing|tojson }};
 let lastStatus     = '{{ status }}';
@@ -369,10 +406,9 @@ setInterval(() => {
     .then(d => {
       if (d.status !== lastStatus || d.now_playing !== lastNowPlaying) {
         applyState(d.status, d.now_playing);
-        // If a new video started, reload page to get fresh playlist order
-        if (d.now_playing !== lastNowPlaying && d.now_playing) {
-          // Just update highlight without full reload
-        }
+      }
+      if (d.rotation !== undefined && d.rotation !== currentRotation) {
+        applyRotation(d.rotation);
       }
     })
     .catch(() => {});

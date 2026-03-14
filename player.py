@@ -29,6 +29,7 @@ PAUSE_FLAG    = Path("/opt/videoplayer/.pause")
 STOP_FLAG     = Path("/opt/videoplayer/.stop")
 STATE_FILE    = Path("/opt/videoplayer/state.json")
 ORDER_FILE    = Path("/opt/videoplayer/playlist_order.json")
+SETTINGS_FILE = Path("/opt/videoplayer/settings.json")
 MPV_SOCKET    = Path("/tmp/mpv-videoplayer.sock")
 PLAYLIST_FILE = Path("/tmp/mpv-playlist.m3u")
 SUPPORTED_EXT = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".ts", ".m4v"}
@@ -67,6 +68,16 @@ user_stopped = False  # True after Stop — stay on splash until Restart/Skip
 paused_lock  = threading.Lock()
 
 # ── State file ────────────────────────────────────────────────────────────────
+
+def get_rotation() -> int:
+    """Read display rotation from settings.json (0/90/180/270)."""
+    try:
+        s = json.loads(SETTINGS_FILE.read_text())
+        r = int(s.get("rotation", 0))
+        return r if r in (0, 90, 180, 270) else 0
+    except Exception:
+        return 0
+
 
 def write_state(video, status):
     try:
@@ -171,6 +182,9 @@ def start_mpv(playlist):
     write_playlist_file(playlist)
     MPV_SOCKET.unlink(missing_ok=True)
 
+    rotation = get_rotation()
+    log.info(f"Starting mpv with rotation={rotation}°")
+
     args = [
         "mpv",
         "--vo=drm",
@@ -180,8 +194,9 @@ def start_mpv(playlist):
         "--no-input-default-bindings",
         "--no-terminal",
         "--really-quiet",
-        "--hwdec=auto",          # RPi5: rpi-hevc-dec not accessible via v4l2m2m; software decode is fine
-        "--loop-playlist=inf",      # loop the whole playlist forever
+        "--hwdec=auto",
+        f"--video-rotate={rotation}",
+        "--loop-playlist=inf",
         "--loop-file=no",
         f"--input-ipc-server={MPV_SOCKET}",
         f"--playlist={PLAYLIST_FILE}",
@@ -278,6 +293,7 @@ def play_loop():
                     "mpv", "--vo=drm", f"--drm-device={DRM_CARD}",
                     "--fullscreen", "--no-osc", "--no-terminal",
                     "--really-quiet", "--image-display-duration=inf",
+                    f"--video-rotate={get_rotation()}",
                     f"--input-ipc-server={MPV_SOCKET}", str(splash)
                 ])
                 wait_for_socket()

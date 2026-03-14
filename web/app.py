@@ -24,6 +24,7 @@ PAUSE_FLAG     = Path("/opt/videoplayer/.pause")
 STOP_FLAG      = Path("/opt/videoplayer/.stop")
 ORDER_FILE     = Path("/opt/videoplayer/playlist_order.json")
 STATE_FILE     = Path("/opt/videoplayer/state.json")
+SETTINGS_FILE  = Path("/opt/videoplayer/settings.json")
 LOG_FILE       = Path("/opt/videoplayer/logs/web.log")
 UPLOAD_MAX_MB  = 4096
 SUPPORTED_EXT  = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".ts", ".m4v"}
@@ -77,6 +78,21 @@ def get_state() -> dict:
         return {"now_playing": None, "status": "idle", "ts": 0}
 
 
+DEFAULT_SETTINGS = {"rotation": 0}
+
+def get_settings() -> dict:
+    try:
+        s = json.loads(SETTINGS_FILE.read_text())
+        return {**DEFAULT_SETTINGS, **s}
+    except Exception:
+        return DEFAULT_SETTINGS.copy()
+
+
+def save_settings(settings: dict):
+    with lock:
+        SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+
+
 def save_order(names):
     with lock:
         ORDER_FILE.write_text(json.dumps(names, indent=2))
@@ -89,11 +105,13 @@ def trigger_reload():
 
 @app.route("/")
 def index():
-    state = get_state()
+    state    = get_state()
+    settings = get_settings()
     return render_template("index.html",
                            playlist=get_ordered_playlist(),
                            now_playing=state.get("now_playing"),
-                           status=state.get("status", "idle"))
+                           status=state.get("status", "idle"),
+                           rotation=settings.get("rotation", 0))
 
 
 @app.route("/upload", methods=["POST"])
@@ -177,13 +195,34 @@ def stop():
 
 @app.route("/api/status")
 def api_status():
-    state = get_state()
+    state    = get_state()
+    settings = get_settings()
     return jsonify({
         "status":      state.get("status", "idle"),
         "now_playing": state.get("now_playing"),
         "count":       len(get_ordered_playlist()),
+        "rotation":    settings.get("rotation", 0),
         "ts":          time.time()
     })
+
+
+@app.route("/api/settings", methods=["GET", "POST"])
+def api_settings():
+    if request.method == "POST":
+        data = request.get_json()
+        if data is None or "rotation" not in data:
+            return jsonify({"error": "Invalid data"}), 400
+        rotation = int(data["rotation"])
+        if rotation not in (0, 90, 180, 270):
+            return jsonify({"error": "rotation must be 0, 90, 180 or 270"}), 400
+        settings = get_settings()
+        settings["rotation"] = rotation
+        save_settings(settings)
+        log.info(f"Rotation set to {rotation}°")
+        # Signal player to restart with new rotation
+        trigger_reload()
+        return jsonify({"ok": True, "rotation": rotation})
+    return jsonify(get_settings())
 
 
 if __name__ == "__main__":
