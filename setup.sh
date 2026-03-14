@@ -1,7 +1,12 @@
 #!/bin/bash
 # =============================================================================
 #  Raspberry Pi VideoPlayer — one-line installer
-#  Usage: curl -fsSL https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main/setup.sh | sudo bash
+#  Compatible with Raspberry Pi 4 (Bullseye/Bookworm) and Pi 5 (Bookworm/Trixie)
+#
+#  Usage:
+#    curl -fsSL https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main/setup.sh | sudo WIFI_COUNTRY=GB bash
+#    curl -fsSL https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main/setup.sh | sudo WIFI_COUNTRY=DK bash
+#    curl -fsSL https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main/setup.sh | sudo WIFI_COUNTRY=DE bash
 # =============================================================================
 set -e
 
@@ -11,7 +16,8 @@ warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 err()  { echo -e "${RED}[✘]${NC} $1"; exit 1; }
 info() { echo -e "${BLUE}[→]${NC} $1"; }
 
-[ "$EUID" -ne 0 ] && err "Please run as root:  curl -fsSL https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main/setup.sh | sudo bash"
+[ "$EUID" -ne 0 ] && err "Please run as root. Example:
+  curl -fsSL https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main/setup.sh | sudo WIFI_COUNTRY=GB bash"
 
 REPO="https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main"
 INSTALL_DIR="/opt/videoplayer"
@@ -34,16 +40,12 @@ echo "=================================================================="
 echo ""
 
 # ── WiFi Country ──────────────────────────────────────────────────────────────
-# This MUST be set correctly or hostapd will refuse to broadcast.
-# The country code controls which WiFi channels and power levels are legal.
-
-# Common codes: GB=United Kingdom, DK=Denmark, DE=Germany, US=United States,
-#               FR=France, NL=Netherlands, SE=Sweden, NO=Norway, FI=Finland
+# Required for legal WiFi operation. Controls which channels/power are permitted.
+# Common codes: GB DK DE US FR NL SE NO FI AU CA JP
 
 ask_wifi_country() {
-    # If stdin is not a terminal (piped from curl), we can't prompt interactively.
-    # The user must pass WIFI_COUNTRY as an env variable instead.
     if [ ! -t 0 ]; then
+        # Non-interactive (piped from curl) — must use env variable
         if [ -z "$WIFI_COUNTRY" ]; then
             echo ""
             echo -e "${RED}  ╔══════════════════════════════════════════════════════════════╗${NC}"
@@ -59,58 +61,70 @@ ask_wifi_country() {
             exit 1
         fi
     else
-        # Running interactively — prompt the user
-        echo ""
+        # Interactive — prompt with auto-detected default
         echo "  WiFi Country Code"
         echo "  ─────────────────────────────────────────────────────────────"
-        echo "  This must match your physical location for legal WiFi operation."
         echo "  Common codes: GB  DK  DE  US  FR  NL  SE  NO  FI  AU  CA  JP"
         echo ""
-
-        # Try to suggest a default from existing system config
         EXISTING=$(raspi-config nonint get_wifi_country 2>/dev/null \
             || grep "^country=" /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null | cut -d= -f2 \
+            || nmcli -t -f 802-11-wireless.reg-domain con show --active 2>/dev/null | cut -d: -f2 \
             || echo "")
-
         if [ -n "$EXISTING" ]; then
             echo -e "  Detected existing country: ${GREEN}${EXISTING}${NC}"
             echo -n "  Enter country code [${EXISTING}]: "
         else
             echo -n "  Enter your 2-letter country code (e.g. GB, DK, DE, US): "
         fi
-
         read -r INPUT
         INPUT=$(echo "$INPUT" | tr '[:lower:]' '[:upper:]' | tr -d ' ')
-
-        # If user just pressed Enter and we had a default, use it
-        if [ -z "$INPUT" ] && [ -n "$EXISTING" ]; then
-            INPUT="$EXISTING"
-        fi
-
+        [ -z "$INPUT" ] && [ -n "$EXISTING" ] && INPUT="$EXISTING"
         WIFI_COUNTRY="$INPUT"
     fi
 
-    # Validate — must be exactly 2 uppercase letters
-    if ! echo "$WIFI_COUNTRY" | grep -qE '^[A-Z]{2}$'; then
-        err "Invalid country code '$WIFI_COUNTRY' — must be exactly 2 letters (e.g. GB, DK, DE, US)"
-    fi
-
-    log "WiFi country set to: $WIFI_COUNTRY"
+    WIFI_COUNTRY=$(echo "$WIFI_COUNTRY" | tr '[:lower:]' '[:upper:]' | tr -d ' ')
+    echo "$WIFI_COUNTRY" | grep -qE '^[A-Z]{2}$' \
+        || err "Invalid country code '$WIFI_COUNTRY' — must be 2 letters (e.g. GB, DK, US)"
+    log "WiFi country: $WIFI_COUNTRY"
 }
 
 ask_wifi_country
 
-
-# ── System check ──────────────────────────────────────────────────────────────
-info "Checking system..."
+# ── Detect hardware ───────────────────────────────────────────────────────────
+info "Detecting hardware..."
 PI_MODEL=$(cat /proc/device-tree/model 2>/dev/null || echo "unknown")
+
+# DRM card: RPi 5 uses card1 for HDMI output, RPi 4 uses card0
 if echo "$PI_MODEL" | grep -q "Raspberry Pi 5"; then
     DRM_CARD="/dev/dri/card1"
-    log "Detected: Raspberry Pi 5 (DRM card1)"
+    log "Detected: Raspberry Pi 5 (DRM: card1)"
 else
     DRM_CARD="/dev/dri/card0"
-    log "Detected: Raspberry Pi 4 or earlier (DRM card0)"
+    log "Detected: Raspberry Pi 4 or earlier (DRM: card0)"
 fi
+
+# Network stack: Bookworm/Trixie (RPi 5, newer RPi 4) uses NetworkManager.
+# Bullseye and older (most RPi 4) use dhcpcd.
+# We detect which is active and use the right AP configuration method.
+if systemctl is-active --quiet NetworkManager 2>/dev/null; then
+    NET_STACK="networkmanager"
+    log "Network stack: NetworkManager (Bookworm/Trixie)"
+elif systemctl is-active --quiet dhcpcd 2>/dev/null || \
+     systemctl is-enabled --quiet dhcpcd 2>/dev/null; then
+    NET_STACK="dhcpcd"
+    log "Network stack: dhcpcd (Bullseye)"
+else
+    # Default to NetworkManager on fresh installs — it's the modern default
+    NET_STACK="networkmanager"
+    warn "Could not detect network stack — assuming NetworkManager"
+fi
+
+# Boot config paths: RPi 5 uses /boot/firmware/, RPi 4 uses /boot/
+BOOT_DIR=""
+for d in /boot/firmware /boot; do
+    [ -f "$d/config.txt" ] && BOOT_DIR="$d" && break
+done
+[ -z "$BOOT_DIR" ] && warn "Could not find boot config directory" || log "Boot config: $BOOT_DIR"
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
 info "Updating packages..."
@@ -119,7 +133,7 @@ apt-get update -qq
 info "Installing dependencies..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     mpv python3 python3-pip python3-flask python3-watchdog python3-pil \
-    hostapd dnsmasq curl git net-tools
+    hostapd dnsmasq curl git net-tools iw
 log "Dependencies installed"
 
 # ── User ──────────────────────────────────────────────────────────────────────
@@ -132,23 +146,15 @@ fi
 usermod -aG video,audio,input,tty,render "$SERVICE_USER"
 
 # ── Directory structure ───────────────────────────────────────────────────────
-info "Creating directory structure..."
 mkdir -p "$INSTALL_DIR"/{videos,web/templates,web/static,logs}
-chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
 
 # ── Download application files ────────────────────────────────────────────────
 info "Downloading application files from GitHub..."
-
-download() {
-    local src="$1" dst="$2"
-    curl -fsSL "$REPO/$src" -o "$dst" || err "Failed to download $src"
-}
-
+download() { curl -fsSL "$REPO/$1" -o "$2" || err "Failed to download $1"; }
 download "player.py"                "$INSTALL_DIR/player.py"
 download "generate_splash.py"       "$INSTALL_DIR/generate_splash.py"
 download "web/app.py"               "$INSTALL_DIR/web/app.py"
 download "web/templates/index.html" "$INSTALL_DIR/web/templates/index.html"
-
 chmod +x "$INSTALL_DIR/player.py"
 chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
 log "Application files installed"
@@ -159,37 +165,22 @@ sudo -u "$SERVICE_USER" python3 "$INSTALL_DIR/generate_splash.py" \
     && log "Splash screen generated" \
     || warn "Splash generation failed (non-fatal)"
 
-
-# ── WiFi Access Point ─────────────────────────────────────────────────────────
-info "Configuring WiFi access point (SSID: $SSID, country: $WIFI_COUNTRY)..."
-systemctl stop hostapd dnsmasq 2>/dev/null || true
-systemctl unmask hostapd
-systemctl unmask dnsmasq
-
-# Set WiFi country system-wide (affects wpa_supplicant, regulatory DB, hostapd)
+# ── WiFi country — set system-wide ───────────────────────────────────────────
+info "Setting WiFi regulatory domain to $WIFI_COUNTRY..."
 raspi-config nonint do_wifi_country "$WIFI_COUNTRY" 2>/dev/null || true
-# Also write directly as fallback for non-raspi-config systems
-REGDB_FILE="/etc/default/crda"
-if [ -f "$REGDB_FILE" ]; then
-    sed -i "s/^REGDOMAIN=.*/REGDOMAIN=${WIFI_COUNTRY}/" "$REGDB_FILE" \
-        || echo "REGDOMAIN=${WIFI_COUNTRY}" >> "$REGDB_FILE"
-fi
-# iw regulatory set (applies immediately without reboot)
 iw reg set "$WIFI_COUNTRY" 2>/dev/null || true
-log "WiFi regulatory domain set to $WIFI_COUNTRY"
-
-# Static IP for wlan0
-if ! grep -q "VideoPlayer" /etc/dhcpcd.conf 2>/dev/null; then
-    cat >> /etc/dhcpcd.conf << EOF
-
-# VideoPlayer Access Point
-interface wlan0
-    static ip_address=${AP_IP}/24
-    nohook wpa_supplicant
-EOF
+if [ -f /etc/default/crda ]; then
+    sed -i "s/^REGDOMAIN=.*/REGDOMAIN=${WIFI_COUNTRY}/" /etc/default/crda \
+        || echo "REGDOMAIN=${WIFI_COUNTRY}" >> /etc/default/crda
 fi
+log "Regulatory domain set"
 
-# hostapd config — include country_code so hostapd knows which channels are legal
+# ── Access Point configuration ────────────────────────────────────────────────
+info "Configuring WiFi access point (stack: $NET_STACK)..."
+systemctl stop hostapd dnsmasq 2>/dev/null || true
+systemctl unmask hostapd dnsmasq
+
+# hostapd config (same for both stacks)
 cat > /etc/hostapd/hostapd.conf << EOF
 interface=wlan0
 driver=nl80211
@@ -205,10 +196,10 @@ wpa_passphrase=${WIFI_PASS}
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
 EOF
+sed -i 's|#DAEMON_CONF=""|DAEMON_CONF="/etc/hostapd/hostapd.conf"|' \
+    /etc/default/hostapd 2>/dev/null || true
 
-sed -i 's|#DAEMON_CONF=""|DAEMON_CONF="/etc/hostapd/hostapd.conf"|' /etc/default/hostapd 2>/dev/null || true
-
-# dnsmasq config
+# dnsmasq config (same for both stacks)
 cat > /etc/dnsmasq.conf << EOF
 interface=wlan0
 dhcp-range=192.168.4.10,192.168.4.50,255.255.255.0,24h
@@ -216,16 +207,55 @@ domain=local
 address=/videoplayer.local/${AP_IP}
 EOF
 
-log "Access point configured"
+if [ "$NET_STACK" = "networkmanager" ]; then
+    # ── NetworkManager path (RPi 5 / Bookworm / Trixie) ──────────────────────
+    # Tell NM to leave wlan0 alone so hostapd can manage it directly.
+    # We create an unmanaged rule for wlan0.
+    mkdir -p /etc/NetworkManager/conf.d
+    cat > /etc/NetworkManager/conf.d/99-videoplayer-unmanaged.conf << EOF
+[keyfile]
+unmanaged-devices=interface-name:wlan0
+EOF
 
-# ── AP helper scripts ─────────────────────────────────────────────────────────
-cat > "$INSTALL_DIR/ap-start.sh" << APEOF
+    # Set static IP via ip command on boot (NM won't do it for unmanaged iface)
+    cat > "$INSTALL_DIR/ap-start.sh" << APEOF
+#!/bin/bash
+iw reg set ${WIFI_COUNTRY} 2>/dev/null || true
+ip link set wlan0 up
+ip addr flush dev wlan0 2>/dev/null || true
+ip addr add ${AP_IP}/24 dev wlan0 2>/dev/null || true
+systemctl restart NetworkManager 2>/dev/null || true
+sleep 1
+systemctl start hostapd
+systemctl start dnsmasq
+APEOF
+
+    log "NetworkManager: wlan0 set to unmanaged"
+
+else
+    # ── dhcpcd path (RPi 4 / Bullseye) ───────────────────────────────────────
+    # Static IP via dhcpcd.conf, suppress wpa_supplicant hook on wlan0
+    if ! grep -q "VideoPlayer" /etc/dhcpcd.conf 2>/dev/null; then
+        cat >> /etc/dhcpcd.conf << EOF
+
+# VideoPlayer Access Point
+interface wlan0
+    static ip_address=${AP_IP}/24
+    nohook wpa_supplicant
+EOF
+    fi
+
+    cat > "$INSTALL_DIR/ap-start.sh" << APEOF
 #!/bin/bash
 iw reg set ${WIFI_COUNTRY} 2>/dev/null || true
 ip link set wlan0 up
 ip addr add ${AP_IP}/24 dev wlan0 2>/dev/null || true
-systemctl start hostapd && systemctl start dnsmasq
+systemctl start hostapd
+systemctl start dnsmasq
 APEOF
+
+    log "dhcpcd: wlan0 static IP configured"
+fi
 
 cat > "$INSTALL_DIR/ap-stop.sh" << 'APEOF'
 #!/bin/bash
@@ -234,8 +264,9 @@ ip addr del 192.168.4.1/24 dev wlan0 2>/dev/null || true
 APEOF
 
 chmod +x "$INSTALL_DIR/ap-start.sh" "$INSTALL_DIR/ap-stop.sh"
-chown "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR/ap-start.sh" "$INSTALL_DIR/ap-stop.sh"
-
+chown "$SERVICE_USER":"$SERVICE_USER" \
+    "$INSTALL_DIR/ap-start.sh" "$INSTALL_DIR/ap-stop.sh"
+log "Access point configured"
 
 # ── systemd services ──────────────────────────────────────────────────────────
 info "Installing systemd services..."
@@ -244,6 +275,7 @@ cat > /etc/systemd/system/videoplayer-ap.service << EOF
 [Unit]
 Description=VideoPlayer WiFi Access Point
 After=network.target
+$([ "$NET_STACK" = "networkmanager" ] && echo "After=NetworkManager.service")
 
 [Service]
 Type=oneshot
@@ -300,31 +332,32 @@ log "Services enabled"
 
 # ── Boot config ───────────────────────────────────────────────────────────────
 info "Configuring boot settings..."
-for CFG in /boot/config.txt /boot/firmware/config.txt; do
-    [ -f "$CFG" ] && grep -q "disable_splash" "$CFG" \
-        || echo "disable_splash=1" >> "$CFG" 2>/dev/null || true
-done
-for CMD in /boot/cmdline.txt /boot/firmware/cmdline.txt; do
-    [ -f "$CMD" ] && grep -q "consoleblank" "$CMD" \
-        || sed -i 's/$/ quiet logo.nologo consoleblank=0/' "$CMD" 2>/dev/null || true
-done
+if [ -n "$BOOT_DIR" ]; then
+    grep -q "disable_splash" "$BOOT_DIR/config.txt" \
+        || echo "disable_splash=1" >> "$BOOT_DIR/config.txt"
+    grep -q "consoleblank" "$BOOT_DIR/cmdline.txt" \
+        || sed -i 's/$/ quiet logo.nologo consoleblank=0/' "$BOOT_DIR/cmdline.txt"
+    log "Boot config updated ($BOOT_DIR)"
+fi
 
 mkdir -p /etc/X11
 echo -e "allowed_users=anybody\nneeds_root_rights=yes" > /etc/X11/Xwrapper.config
 
-# ── Final summary ─────────────────────────────────────────────────────────────
+# ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "=================================================================="
 echo -e "  ${GREEN}Installation complete!${NC}"
 echo "=================================================================="
 echo ""
-echo "  WiFi SSID    :  $SSID"
-echo "  Password     :  $WIFI_PASS"
+echo "  Hardware     :  $PI_MODEL"
+echo "  Network      :  $NET_STACK"
+echo "  DRM device   :  $DRM_CARD"
 echo "  WiFi Country :  $WIFI_COUNTRY"
+echo "  WiFi SSID    :  $SSID"
+echo "  WiFi Password:  $WIFI_PASS"
 echo "  Web UI       :  http://$AP_IP"
-echo "  Videos       :  $INSTALL_DIR/videos"
 echo ""
-echo "  Next step    :  sudo reboot"
+echo "  → sudo reboot"
 echo ""
 echo "  After reboot:"
 echo "    1. Connect to '$SSID' WiFi"
