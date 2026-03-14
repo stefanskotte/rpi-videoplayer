@@ -10,11 +10,22 @@ A fully autonomous video kiosk for Raspberry Pi 4/5 that:
 
 ## Install (one line)
 
-Flash **Raspberry Pi OS Lite 64-bit**, boot, SSH in, then run:
+Flash **Raspberry Pi OS Lite 64-bit**, boot, SSH in, then run with your 2-letter [ISO country code](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main/setup.sh | sudo bash
+# United Kingdom
+curl -fsSL https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main/setup.sh | sudo WIFI_COUNTRY=GB bash
+
+# Denmark
+curl -fsSL https://raw.githubusercontent.com/stefanskusercontent/rpi-videoplayer/main/setup.sh | sudo WIFI_COUNTRY=DK bash
+
+# Germany
+curl -fsSL https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main/setup.sh | sudo WIFI_COUNTRY=DE bash
 ```
+
+> **Why is this required?**  WiFi operates on licensed radio frequencies. The country code tells the Pi which channels and power levels are legal in your region. Without it, `hostapd` will refuse to broadcast.
+
+If you run the script interactively (not piped from curl), it will **prompt you** to enter the code instead.
 
 Then reboot:
 ```bash
