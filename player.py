@@ -179,7 +179,7 @@ def start_mpv(playlist):
         "--no-input-default-bindings",
         "--no-terminal",
         "--really-quiet",
-        "--hwdec=v4l2m2m-copy",  # RPi5: HW HEVC via rpi-hevc-dec; graceful SW fallback for H.264
+        "--hwdec=auto",          # RPi5: rpi-hevc-dec not accessible via v4l2m2m; software decode is fine
         "--loop-playlist=inf",      # loop the whole playlist forever
         "--loop-file=no",
         f"--input-ipc-server={MPV_SOCKET}",
