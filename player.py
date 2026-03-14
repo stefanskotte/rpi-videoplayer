@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
 """
 player.py - Endless loop video player controller.
-Uses mpv with direct DRM/KMS output — no X11 or desktop environment needed.
-Automatically detects the correct DRM card for RPi 4 and RPi 5.
-Watches /opt/videoplayer/videos and reacts to playlist changes live.
-
-Control flags (touch file to trigger):
-  .reload  — reload playlist from scratch
-  .skip    — skip to next video immediately
-  .pause   — toggle pause/resume
+Uses a single persistent mpv process with IPC socket for seamless transitions.
+No process restarts between videos = no console flicker between clips.
 """
 
 import sys
 import json
 import time
+import socket
 import signal
 import subprocess
 import threading
 import logging
+import tempfile
+import os
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -30,6 +27,8 @@ SKIP_FLAG     = Path("/opt/videoplayer/.skip")
 PAUSE_FLAG    = Path("/opt/videoplayer/.pause")
 STATE_FILE    = Path("/opt/videoplayer/state.json")
 ORDER_FILE    = Path("/opt/videoplayer/playlist_order.json")
+MPV_SOCKET    = Path("/tmp/mpv-videoplayer.sock")
+PLAYLIST_FILE = Path("/tmp/mpv-playlist.m3u")
 SUPPORTED_EXT = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".ts", ".m4v"}
 
 
@@ -49,13 +48,6 @@ def detect_drm_card() -> str:
 
 DRM_CARD = detect_drm_card()
 
-MPV_BASE_ARGS = [
-    "mpv", "--vo=drm", f"--drm-device={DRM_CARD}",
-    "--fullscreen", "--no-osc", "--no-input-default-bindings",
-    "--no-terminal", "--really-quiet", "--hwdec=auto",
-    "--loop-file=no", "--keep-open=no",
-]
-
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
@@ -64,29 +56,27 @@ logging.basicConfig(
 )
 log = logging.getLogger("player")
 
-current_proc  = None
-reload_event  = threading.Event()
-skip_event    = threading.Event()
-stop_event    = threading.Event()
-paused        = False
-paused_lock   = threading.Lock()
-
+mpv_proc     = None
+stop_event   = threading.Event()
+reload_event = threading.Event()
+skip_event   = threading.Event()
+paused       = False
+paused_lock  = threading.Lock()
 
 # ── State file ────────────────────────────────────────────────────────────────
 
-def write_state(video: str | None, status: str):
-    """Write current playback state for the web UI to read."""
+def write_state(video, status):
     try:
         STATE_FILE.write_text(json.dumps({
             "now_playing": video,
-            "status": status,   # playing | paused | idle
+            "status": status,
             "ts": time.time()
         }))
     except Exception:
         pass
 
 
-def read_state() -> dict:
+def read_state():
     try:
         return json.loads(STATE_FILE.read_text())
     except Exception:
@@ -115,56 +105,147 @@ def get_playlist():
     return result
 
 
-# ── mpv control ───────────────────────────────────────────────────────────────
+def write_playlist_file(playlist):
+    """Write an m3u playlist file for mpv to load."""
+    with open(PLAYLIST_FILE, "w") as f:
+        for p in playlist:
+            f.write(str(p) + "\n")
+
+
+# ── mpv IPC ───────────────────────────────────────────────────────────────────
+
+def mpv_command(*args):
+    """Send a JSON IPC command to the running mpv process."""
+    if not MPV_SOCKET.exists():
+        return None
+    try:
+        cmd = json.dumps({"command": list(args)}) + "\n"
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            s.connect(str(MPV_SOCKET))
+            s.sendall(cmd.encode())
+            resp = s.recv(4096).decode().strip()
+            return json.loads(resp.split("\n")[0]) if resp else None
+    except Exception:
+        return None
+
+
+def mpv_get(prop):
+    """Get an mpv property value."""
+    resp = mpv_command("get_property", prop)
+    if resp and resp.get("error") == "success":
+        return resp.get("data")
+    return None
+
+
+def mpv_set(prop, value):
+    """Set an mpv property."""
+    mpv_command("set_property", prop, value)
+
+
+def wait_for_socket(timeout=10):
+    """Wait until the mpv IPC socket is ready."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if MPV_SOCKET.exists():
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                    s.settimeout(1)
+                    s.connect(str(MPV_SOCKET))
+                    return True
+            except Exception:
+                pass
+        time.sleep(0.1)
+    return False
+
+# ── mpv process management ────────────────────────────────────────────────────
+
+def start_mpv(playlist):
+    """Launch a single persistent mpv process with IPC socket."""
+    global mpv_proc
+    kill_mpv()
+
+    write_playlist_file(playlist)
+    MPV_SOCKET.unlink(missing_ok=True)
+
+    args = [
+        "mpv",
+        "--vo=drm",
+        f"--drm-device={DRM_CARD}",
+        "--fullscreen",
+        "--no-osc",
+        "--no-input-default-bindings",
+        "--no-terminal",
+        "--really-quiet",
+        "--hwdec=auto",
+        "--loop-playlist=inf",      # loop the whole playlist forever
+        "--loop-file=no",
+        f"--input-ipc-server={MPV_SOCKET}",
+        f"--playlist={PLAYLIST_FILE}",
+    ]
+    mpv_proc = subprocess.Popen(args)
+    log.info(f"mpv started (PID {mpv_proc.pid}), waiting for IPC socket...")
+
+    if not wait_for_socket(timeout=10):
+        log.error("mpv IPC socket never appeared")
+        return False
+
+    log.info("mpv IPC socket ready")
+    return True
+
 
 def kill_mpv():
-    global current_proc
-    if current_proc and current_proc.poll() is None:
-        current_proc.terminate()
+    global mpv_proc
+    if mpv_proc and mpv_proc.poll() is None:
+        mpv_proc.terminate()
         try:
-            current_proc.wait(timeout=3)
+            mpv_proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            current_proc.kill()
-    current_proc = None
+            mpv_proc.kill()
+    mpv_proc = None
+    MPV_SOCKET.unlink(missing_ok=True)
 
 
-def pause_mpv():
-    """Send SIGSTOP to freeze mpv (pause without seeking)."""
-    if current_proc and current_proc.poll() is None:
-        current_proc.send_signal(signal.SIGSTOP)
-        log.info("Paused")
+def get_current_filename():
+    """Ask mpv which file it's currently playing."""
+    path = mpv_get("path")
+    if path:
+        return Path(path).name
+    return None
 
 
-def resume_mpv():
-    """Send SIGCONT to unfreeze mpv."""
-    if current_proc and current_proc.poll() is None:
-        current_proc.send_signal(signal.SIGCONT)
-        log.info("Resumed")
+# ── State tracker thread ──────────────────────────────────────────────────────
 
+def state_tracker():
+    """Polls mpv every second to keep state.json up to date."""
+    last = None
+    while not stop_event.is_set():
+        try:
+            if mpv_proc and mpv_proc.poll() is None:
+                name = get_current_filename()
+                with paused_lock:
+                    status = "paused" if paused else ("playing" if name else "idle")
+                if name != last:
+                    log.info(f"Now playing: {name}")
+                    last = name
+                write_state(name, status)
+            else:
+                write_state(None, "idle")
+                last = None
+        except Exception:
+            pass
+        time.sleep(1)
 
-# ── Playback loop ─────────────────────────────────────────────────────────────
-
-def play_placeholder():
-    global current_proc
-    log.info("No videos found — waiting for uploads...")
-    write_state(None, "idle")
-    if PLACEHOLDER.exists():
-        current_proc = subprocess.Popen(
-            MPV_BASE_ARGS + ["--image-display-duration=inf", str(PLACEHOLDER)]
-        )
-        while not reload_event.is_set() and not stop_event.is_set():
-            if current_proc.poll() is not None:
-                break
-            time.sleep(1)
-        kill_mpv()
-    else:
-        time.sleep(5)
-
+# ── Main play loop ────────────────────────────────────────────────────────────
 
 def play_loop():
-    global current_proc, paused
+    global paused
     log.info(f"Using DRM device: {DRM_CARD}")
     write_state(None, "idle")
+
+    # Start state tracker thread
+    tracker = threading.Thread(target=state_tracker, daemon=True)
+    tracker.start()
 
     while not stop_event.is_set():
         reload_event.clear()
@@ -172,34 +253,54 @@ def play_loop():
         playlist = get_playlist()
 
         if not playlist:
-            play_placeholder()
+            log.info("No videos — waiting for uploads...")
+            write_state(None, "idle")
+            # Show placeholder if available, otherwise blank (mpv holds the display)
+            if mpv_proc is None or mpv_proc.poll() is not None:
+                if PLACEHOLDER.exists():
+                    args = [
+                        "mpv", "--vo=drm", f"--drm-device={DRM_CARD}",
+                        "--fullscreen", "--no-osc", "--no-terminal",
+                        "--really-quiet", "--image-display-duration=inf",
+                        f"--input-ipc-server={MPV_SOCKET}",
+                        str(PLACEHOLDER)
+                    ]
+                    global mpv_proc
+                    MPV_SOCKET.unlink(missing_ok=True)
+                    mpv_proc = subprocess.Popen(args)
+                    wait_for_socket()
+            # Wait for reload (new video upload) or stop
+            while not reload_event.is_set() and not stop_event.is_set():
+                time.sleep(1)
+            kill_mpv()
             continue
 
-        log.info(f"Playlist: {len(playlist)} video(s)")
-        for video in playlist:
-            if reload_event.is_set() or stop_event.is_set():
+        log.info(f"Starting mpv with {len(playlist)} video(s)")
+        if not start_mpv(playlist):
+            time.sleep(3)
+            continue
+
+        # Re-apply paused state if needed
+        with paused_lock:
+            if paused:
+                mpv_command("set_property", "pause", True)
+
+        # Monitor: wait for reload/skip/stop signals, or mpv dying unexpectedly
+        while not reload_event.is_set() and not stop_event.is_set():
+            # Handle skip: tell mpv to go to next item in its internal playlist
+            if skip_event.is_set():
+                skip_event.clear()
+                log.info("Skipping to next video")
+                mpv_command("playlist-next", "force")
+
+            # If mpv died unexpectedly, restart it
+            if mpv_proc and mpv_proc.poll() is not None:
+                log.warning("mpv exited unexpectedly, restarting...")
                 break
 
-            skip_event.clear()
-            if not video.exists():
-                continue
+            time.sleep(0.3)
 
-            log.info(f"Playing: {video.name}")
-            write_state(video.name, "paused" if paused else "playing")
-            current_proc = subprocess.Popen(MPV_BASE_ARGS + [str(video)])
-
-            # Apply paused state immediately if already paused
-            with paused_lock:
-                if paused:
-                    time.sleep(0.3)
-                    pause_mpv()
-
-            while not reload_event.is_set() and not stop_event.is_set() and not skip_event.is_set():
-                if current_proc.poll() is not None:
-                    break
-                time.sleep(0.3)
-
-            kill_mpv()
+        kill_mpv()
 
         # Clean up flag files
         for flag in [RELOAD_FLAG, SKIP_FLAG, PAUSE_FLAG]:
@@ -208,21 +309,16 @@ def play_loop():
             except Exception:
                 pass
 
-    write_state(None, "idle")
 
-
-# ── Flag file watcher ─────────────────────────────────────────────────────────
+# ── Filesystem watchers ───────────────────────────────────────────────────────
 
 class ControlFlagHandler(FileSystemEventHandler):
-    """Watches the install dir for .reload, .skip, .pause flag files."""
-
     def on_created(self, event):
         name = Path(event.src_path).name
         if name == ".reload":
-            log.info("Reload flag detected")
+            log.info("Reload flag — restarting playlist")
             reload_event.set()
         elif name == ".skip":
-            log.info("Skip flag detected")
             skip_event.set()
             try: SKIP_FLAG.unlink(missing_ok=True)
             except: pass
@@ -238,21 +334,21 @@ class ControlFlagHandler(FileSystemEventHandler):
         with paused_lock:
             paused = not paused
             if paused:
-                pause_mpv()
+                mpv_command("set_property", "pause", True)
                 state = read_state()
                 write_state(state.get("now_playing"), "paused")
-                log.info("Toggled: paused")
+                log.info("Paused")
             else:
-                resume_mpv()
+                mpv_command("set_property", "pause", False)
                 state = read_state()
                 write_state(state.get("now_playing"), "playing")
-                log.info("Toggled: playing")
+                log.info("Resumed")
 
 
 class VideoFolderHandler(FileSystemEventHandler):
     def _trigger(self, event):
         if Path(event.src_path).suffix.lower() in SUPPORTED_EXT:
-            log.info(f"Change detected: {Path(event.src_path).name}")
+            log.info(f"Video change: {Path(event.src_path).name} — reloading")
             reload_event.set()
     def on_created(self, e): self._trigger(e)
     def on_deleted(self, e): self._trigger(e)
@@ -262,7 +358,7 @@ class VideoFolderHandler(FileSystemEventHandler):
 # ── Signal handling ───────────────────────────────────────────────────────────
 
 def handle_signal(signum, frame):
-    log.info(f"Signal {signum} received, shutting down...")
+    log.info(f"Signal {signum} — shutting down")
     stop_event.set()
     kill_mpv()
     write_state(None, "idle")
