@@ -2,7 +2,7 @@
 
 # rpi-videoplayer
 
-A fully autonomous video kiosk for Raspberry Pi 4/5 that:
+A fully autonomous video kiosk for Raspberry Pi 3/4/5 that:
 - Plays videos in an **endless fullscreen loop** from boot — no interaction needed
 - Hosts its own **WiFi access point** (`VideoPlayer`)
 - Serves a **web UI at `http://192.168.4.1`** for uploading and managing the playlist
@@ -67,6 +67,8 @@ The **Now Playing** banner shows the current video with an animated equalizer. T
 MP4, MKV, AVI, MOV, WEBM, TS, M4V
 
 **H.265/HEVC recommended** for hardware-accelerated decode on RPi 5.
+
+**RPi 3 users:** use H.264 content at 1080p or lower — RPi 3's VideoCore IV GPU has limited hardware decoding support in KMS/DRM mode and will fall back to software decoding for H.265.
 
 To convert H.264 → H.265 on your Mac:
 ```bash

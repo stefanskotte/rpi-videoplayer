@@ -184,13 +184,16 @@ ask_wifi_country
 info "Detecting hardware..."
 PI_MODEL=$(cat /proc/device-tree/model 2>/dev/null || echo "unknown")
 
-# DRM card: RPi 5 uses card1 for HDMI output, RPi 4 uses card0
+# DRM card: RPi 5 uses card1 for HDMI output, RPi 3/4 use card0
 if echo "$PI_MODEL" | grep -q "Raspberry Pi 5"; then
     DRM_CARD="/dev/dri/card1"
     log "Detected: Raspberry Pi 5 (DRM: card1)"
+elif echo "$PI_MODEL" | grep -q "Raspberry Pi 3"; then
+    DRM_CARD="/dev/dri/card0"
+    log "Detected: Raspberry Pi 3 (DRM: card0) — use H.264 content at 1080p or lower"
 else
     DRM_CARD="/dev/dri/card0"
-    log "Detected: Raspberry Pi 4 or earlier (DRM: card0)"
+    log "Detected: Raspberry Pi 4 (DRM: card0)"
 fi
 
 # Network stack: Bookworm/Trixie (RPi 5, newer RPi 4) uses NetworkManager.

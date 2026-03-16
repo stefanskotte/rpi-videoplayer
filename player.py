@@ -38,7 +38,7 @@ SUPPORTED_EXT = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".ts", ".m4v"}
 def detect_drm_card() -> str:
     try:
         model = Path("/proc/device-tree/model").read_text()
-        card = "/dev/dri/card1" if "Raspberry Pi 5" in model else "/dev/dri/card0"
+        card = "/dev/dri/card1" if "Raspberry Pi 5" in model else "/dev/dri/card0"  # RPi 3/4 → card0
     except Exception:
         card = "/dev/dri/card0"
     if not Path(card).exists():
