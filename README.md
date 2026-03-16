@@ -1,4 +1,4 @@
-![Alt text](./images/videoplayer-splash.jpg) "a title")
+![Splash](https://github.com/stefanskotte/rpi-videoplayer/blob/main/images/videplayer-splash.jpg) "the splash")
 
 # rpi-videoplayer
 
