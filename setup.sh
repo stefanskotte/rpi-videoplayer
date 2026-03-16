@@ -249,6 +249,15 @@ download "generate_splash.py"       "$INSTALL_DIR/generate_splash.py"
 download "web/app.py"               "$INSTALL_DIR/web/app.py"
 download "web/templates/index.html" "$INSTALL_DIR/web/templates/index.html"
 chmod +x "$INSTALL_DIR/player.py"
+
+# Pre-create runtime files so systemd doesn't create them as root on first write.
+# The chown -R below transfers ownership to the service user.
+touch "$INSTALL_DIR/logs/player.log" \
+      "$INSTALL_DIR/logs/web.log" \
+      "$INSTALL_DIR/state.json" \
+      "$INSTALL_DIR/.reload" \
+      "$INSTALL_DIR/.stop"
+
 chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
 log "Application files installed"
 
