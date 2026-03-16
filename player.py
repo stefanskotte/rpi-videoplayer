@@ -195,6 +195,7 @@ def start_mpv(playlist):
         "--no-terminal",
         "--really-quiet",
         "--hwdec=auto",
+        "--ao=alsa",
         f"--video-rotate={rotation}",
         "--loop-playlist=inf",
         "--loop-file=no",
