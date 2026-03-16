@@ -1,3 +1,5 @@
+![Alt text](./images/videoplayer-splash.jpg) "a title")
+
 # rpi-videoplayer
 
 A fully autonomous video kiosk for Raspberry Pi 4/5 that:
