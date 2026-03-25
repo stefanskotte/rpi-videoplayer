@@ -339,6 +339,20 @@ EOF
     # Set static IP via ip command on boot (NM won't do it for unmanaged iface)
     cat > "$INSTALL_DIR/ap-start.sh" << APEOF
 #!/bin/bash
+# On WiFi-only devices (no ethernet), ap-start.sh only activates
+# if .ap-active flag exists (set by activate-ap.sh).
+# This prevents killing the only network connection on reboot
+# before the user is ready to switch to kiosk mode.
+HAS_ETH=0
+ip link show eth0 &>/dev/null && HAS_ETH=1
+ip link show end0 &>/dev/null && HAS_ETH=1
+
+if [ "\$HAS_ETH" = "0" ] && [ ! -f /opt/videoplayer/.ap-active ]; then
+    echo "[videoplayer-ap] WiFi-only device, .ap-active not set — skipping AP startup."
+    echo "[videoplayer-ap] Run: sudo bash /opt/videoplayer/activate-ap.sh when ready."
+    exit 0
+fi
+
 iw reg set ${WIFI_COUNTRY} 2>/dev/null || true
 ip link set wlan0 up
 ip addr flush dev wlan0 2>/dev/null || true
@@ -366,6 +380,18 @@ EOF
 
     cat > "$INSTALL_DIR/ap-start.sh" << APEOF
 #!/bin/bash
+# On WiFi-only devices (no ethernet), ap-start.sh only activates
+# if .ap-active flag exists (set by activate-ap.sh).
+HAS_ETH=0
+ip link show eth0 &>/dev/null && HAS_ETH=1
+ip link show end0 &>/dev/null && HAS_ETH=1
+
+if [ "\$HAS_ETH" = "0" ] && [ ! -f /opt/videoplayer/.ap-active ]; then
+    echo "[videoplayer-ap] WiFi-only device, .ap-active not set — skipping AP startup."
+    echo "[videoplayer-ap] Run: sudo bash /opt/videoplayer/activate-ap.sh when ready."
+    exit 0
+fi
+
 iw reg set ${WIFI_COUNTRY} 2>/dev/null || true
 ip link set wlan0 up
 ip addr add ${AP_IP}/24 dev wlan0 2>/dev/null || true

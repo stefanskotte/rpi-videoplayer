@@ -99,6 +99,23 @@ systemctl stop dnsmasq 2>/dev/null || true
 sleep 1
 systemctl start dnsmasq
 
+# ── Persist the activated state so it survives reboot ───────────────────────
+# The videoplayer-ap.service (ap-start.sh) will see this on next boot
+# and know wlan0 is the AP interface, not a client.
+touch "$INSTALL_DIR/.ap-active"
+log "AP mode persisted (survives reboot)"
+
+# Ensure the NM unmanaged rule is enabled (it may have been disabled by deactivate-ap.sh)
+if systemctl is-active --quiet NetworkManager 2>/dev/null || \
+   systemctl is-enabled --quiet NetworkManager 2>/dev/null; then
+    if [ -f /etc/NetworkManager/conf.d/99-videoplayer-unmanaged.conf.disabled ]; then
+        mv /etc/NetworkManager/conf.d/99-videoplayer-unmanaged.conf.disabled \
+           /etc/NetworkManager/conf.d/99-videoplayer-unmanaged.conf
+        systemctl reload NetworkManager 2>/dev/null || true
+        log "NM unmanaged rule re-enabled"
+    fi
+fi
+
 # ── Enable and start all videoplayer services ─────────────────────────────────
 info "Starting VideoPlayer services..."
 systemctl start videoplayer-ap.service  2>/dev/null || true

@@ -30,6 +30,10 @@ systemctl stop dnsmasq                     2>/dev/null || true
 info "Releasing wlan0 AP address..."
 ip addr flush dev wlan0 2>/dev/null || true
 
+# Remove the AP-active flag so reboot stays in WiFi client mode
+rm -f /opt/videoplayer/.ap-active
+log "AP mode deactivated (will not restart on reboot)"
+
 # ── Restore WiFi client mode ──────────────────────────────────────────────────
 if systemctl is-active --quiet NetworkManager 2>/dev/null || \
    systemctl is-enabled --quiet NetworkManager 2>/dev/null; then
