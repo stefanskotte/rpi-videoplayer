@@ -427,6 +427,16 @@ signal.signal(signal.SIGINT, handle_signal)
 if __name__ == "__main__":
     log.info("=== VideoPlayer starting ===")
     VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Clean up any stale flag files left over from before a reboot.
+    # Without this, a .stop or .pause file written before shutdown
+    # would immediately trigger that action again on startup.
+    for stale in [RELOAD_FLAG, SKIP_FLAG, PAUSE_FLAG, STOP_FLAG]:
+        try:
+            stale.unlink(missing_ok=True)
+        except Exception:
+            pass
+
     observer = Observer()
     observer.schedule(VideoFolderHandler(), str(VIDEO_DIR), recursive=False)
     observer.schedule(ControlFlagHandler(), str(VIDEO_DIR.parent), recursive=False)
