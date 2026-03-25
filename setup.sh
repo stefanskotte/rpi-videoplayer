@@ -184,6 +184,19 @@ ask_wifi_country
 info "Detecting hardware..."
 PI_MODEL=$(cat /proc/device-tree/model 2>/dev/null || echo "unknown")
 
+# Detect if this is a WiFi-only device (no ethernet, e.g. RPi 3)
+# On such devices we CANNOT start the AP now because wlan0 is the only network
+# interface — starting AP would kill this SSH session mid-install.
+WIFI_ONLY=0
+if ! ip link show eth0 &>/dev/null && ! ip link show end0 &>/dev/null; then
+    # No ethernet interface found — check if we're connected via wlan0
+    if ip route | grep -q wlan0; then
+        WIFI_ONLY=1
+        warn "WiFi-only device detected (no ethernet) — AP will NOT be started now."
+        warn "Run 'sudo bash ${INSTALL_DIR}/activate-ap.sh' when ready to switch to player mode."
+    fi
+fi
+
 # DRM card: RPi 5 uses card1 for HDMI output, RPi 3/4 use card0
 if echo "$PI_MODEL" | grep -q "Raspberry Pi 5"; then
     DRM_CARD="/dev/dri/card1"
@@ -248,7 +261,11 @@ download "player.py"                "$INSTALL_DIR/player.py"
 download "generate_splash.py"       "$INSTALL_DIR/generate_splash.py"
 download "web/app.py"               "$INSTALL_DIR/web/app.py"
 download "web/templates/index.html" "$INSTALL_DIR/web/templates/index.html"
-chmod +x "$INSTALL_DIR/player.py"
+download "activate-ap.sh"           "$INSTALL_DIR/activate-ap.sh"
+download "deactivate-ap.sh"         "$INSTALL_DIR/deactivate-ap.sh"
+chmod +x "$INSTALL_DIR/player.py" \
+         "$INSTALL_DIR/activate-ap.sh" \
+         "$INSTALL_DIR/deactivate-ap.sh"
 
 # Pre-create runtime files so systemd doesn't create them as root on first write.
 # The chown -R below transfers ownership to the service user.
@@ -459,10 +476,27 @@ echo "  WiFi SSID    :  $SSID"
 echo "  WiFi Password:  $WIFI_PASS"
 echo "  Web UI       :  http://$AP_IP"
 echo ""
-echo "  → sudo reboot"
-echo ""
-echo "  After reboot:"
-echo "    1. Connect to '$SSID' WiFi"
-echo "    2. Open http://$AP_IP in your browser"
-echo "    3. Upload videos — they play immediately"
+
+if [ "$WIFI_ONLY" = "1" ]; then
+    echo -e "  ${YELLOW}WiFi-only device (no ethernet) — special steps required:${NC}"
+    echo ""
+    echo "  You are currently connected via WiFi. Starting the access"
+    echo "  point now would disconnect you. Instead:"
+    echo ""
+    echo "  1. When ready to use the player, run:"
+    echo -e "     ${GREEN}sudo bash $INSTALL_DIR/activate-ap.sh${NC}"
+    echo ""
+    echo "  2. This will drop your WiFi connection and start the AP."
+    echo "     Connect to '$SSID' WiFi and open http://$AP_IP"
+    echo ""
+    echo "  To temporarily return to WiFi client mode later:"
+    echo "     sudo bash $INSTALL_DIR/deactivate-ap.sh"
+else
+    echo "  → sudo reboot"
+    echo ""
+    echo "  After reboot:"
+    echo "    1. Connect to '$SSID' WiFi"
+    echo "    2. Open http://$AP_IP in your browser"
+    echo "    3. Upload videos — they play immediately"
+fi
 echo ""
