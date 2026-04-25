@@ -17,10 +17,12 @@ Flash **Raspberry Pi OS Lite 64-bit**, boot, SSH in, then run with your 2-letter
 ```bash
 # United Kingdom
 curl -fsSL https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main/setup.sh | sudo WIFI_COUNTRY=GB bash
-
+```
+```bash
 # Denmark
 curl -fsSL https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main/setup.sh | sudo WIFI_COUNTRY=DK bash
-
+```
+```bash
 # Germany
 curl -fsSL https://raw.githubusercontent.com/stefanskotte/rpi-videoplayer/main/setup.sh | sudo WIFI_COUNTRY=DE bash
 ```
