@@ -36,9 +36,29 @@ SUPPORTED_EXT = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".ts", ".m4v"}
 
 
 def detect_drm_card() -> str:
+    """Pick the DRM card whose connector is actually connected.
+
+    The model-based heuristic (Pi 5 → card1, otherwise card0) is unreliable
+    on Trixie / kernel 6.12+, where the v3d (GPU) device may enumerate as
+    card0 and the vc4 display controller as card1 even on a Pi 4. Probe
+    /sys/class/drm for a connected connector and use that card; fall back
+    to the legacy heuristic only if probing yields nothing.
+    """
+    drm = Path("/sys/class/drm")
+    if drm.is_dir():
+        for status_file in sorted(drm.glob("card*-*/status")):
+            try:
+                if status_file.read_text().strip() == "connected":
+                    # e.g. /sys/class/drm/card1-HDMI-A-2 → /dev/dri/card1
+                    card_name = status_file.parent.name.split("-", 1)[0]
+                    dev = Path("/dev/dri") / card_name
+                    if dev.exists():
+                        return str(dev)
+            except Exception:
+                continue
     try:
         model = Path("/proc/device-tree/model").read_text()
-        card = "/dev/dri/card1" if "Raspberry Pi 5" in model else "/dev/dri/card0"  # RPi 3/4 → card0
+        card = "/dev/dri/card1" if "Raspberry Pi 5" in model else "/dev/dri/card0"
     except Exception:
         card = "/dev/dri/card0"
     if not Path(card).exists():
