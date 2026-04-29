@@ -214,7 +214,7 @@ def start_mpv(playlist):
         "--no-input-default-bindings",
         "--no-terminal",
         "--really-quiet",
-        "--hwdec=auto",
+        "--hwdec=v4l2m2m-copy,drm-copy,auto-safe",
         "--ao=alsa",
         f"--video-rotate={rotation}",
         "--loop-playlist=inf",
