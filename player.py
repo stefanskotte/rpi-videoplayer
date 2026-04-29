@@ -207,7 +207,9 @@ def start_mpv(playlist):
 
     args = [
         "mpv",
-        "--vo=drm",
+        "--vo=gpu",
+        "--gpu-context=drm",
+        "--gpu-api=opengl",
         f"--drm-device={DRM_CARD}",
         "--fullscreen",
         "--no-osc",
@@ -311,7 +313,8 @@ def play_loop():
             if (mpv_proc is None or mpv_proc.poll() is not None) and splash:
                 MPV_SOCKET.unlink(missing_ok=True)
                 mpv_proc = subprocess.Popen([
-                    "mpv", "--vo=drm", f"--drm-device={DRM_CARD}",
+                    "mpv", "--vo=gpu", "--gpu-context=drm", "--gpu-api=opengl",
+                    f"--drm-device={DRM_CARD}",
                     "--fullscreen", "--no-osc", "--no-terminal",
                     "--really-quiet", "--image-display-duration=inf",
                     f"--video-rotate={get_rotation()}",
