@@ -205,6 +205,14 @@ def start_mpv(playlist):
     rotation = get_rotation()
     log.info(f"Starting mpv with rotation={rotation}°")
 
+    # Single-file playlists hit a v4l2m2m decoder-reset bug on the playlist
+    # loop transition — mpv exits silently every iteration. Loop the file in
+    # place instead; for multi-file playlists keep the playlist-level loop.
+    loop_args = (
+        ["--loop-file=inf"] if len(playlist) == 1
+        else ["--loop-playlist=inf", "--loop-file=no"]
+    )
+
     args = [
         "mpv",
         "--vo=gpu",
@@ -219,8 +227,7 @@ def start_mpv(playlist):
         "--hwdec=v4l2m2m-copy,drm-copy,auto-safe",
         "--ao=alsa",
         f"--video-rotate={rotation}",
-        "--loop-playlist=inf",
-        "--loop-file=no",
+        *loop_args,
         f"--input-ipc-server={MPV_SOCKET}",
         f"--playlist={PLAYLIST_FILE}",
     ]
